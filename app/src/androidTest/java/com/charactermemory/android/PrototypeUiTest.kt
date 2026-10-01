@@ -3,6 +3,7 @@ package com.charactermemory.android
 import android.content.ContentValues
 import android.graphics.Bitmap
 import android.os.Build
+import android.os.SystemClock
 import android.provider.MediaStore
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.hasTestTag
@@ -11,6 +12,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
@@ -27,8 +29,15 @@ import org.junit.runner.RunWith
 class PrototypeUiTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
 
-    private fun screenshot(name: String) {
+    private fun screenshot(name: String, expectedTag: String) {
+        // Asserting the Compose semantics tree is not sufficient to synchronize
+        // Android SurfaceFlinger frame presentation. Verify the intended route,
+        // await idle on both runtimes, and settle one display frame before
+        // UiAutomation captures the actual composed DEVICE pixels.
+        compose.onNodeWithTag(expectedTag).assertExists()
         compose.waitForIdle()
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+        SystemClock.sleep(450)
         // The image draft is an Android Dialog: activity + dialog are separate
         // Compose semantics roots. Capture the DEVICE display, not onRoot(),
         // so overlays, permission UI and the soft keyboard are visible too.
@@ -63,43 +72,46 @@ class PrototypeUiTest {
 
     @Test fun screenNavigationAndVisualEvidence() {
         compose.onNodeWithTag("screen-home").assertExists()
-        screenshot("01-chat-list")
+        screenshot("01-chat-list", "screen-home")
 
         compose.onNodeWithTag("home-create-character").performClick()
         compose.onNodeWithTag("screen-character").assertExists()
         compose.onNodeWithTag("character-description").performTextInput("喜欢摄影、旅行和咖啡的朋友")
         compose.onNodeWithTag("character-preview").assertIsEnabled().performClick()
         compose.onNodeWithTag("character-preview-card").assertExists()
-        screenshot("03-character-create")
+        Espresso.closeSoftKeyboard()
+        screenshot("03-character-create", "screen-character")
 
         compose.onNodeWithTag("nav-back").performClick()
         compose.onNodeWithTag("home-create-group").performClick()
         compose.onNodeWithTag("group-description").performTextInput("喜欢二次元、技术和旅行的朋友小队")
         compose.onNodeWithTag("group-preview").assertIsEnabled().performClick()
-        screenshot("04-group-create")
+        Espresso.closeSoftKeyboard()
+        screenshot("04-group-create", "screen-group")
 
         compose.onNodeWithTag("nav-back").performClick()
         compose.onNodeWithTag("character-rin").performClick()
         compose.onNodeWithTag("screen-chat").assertExists()
-        screenshot("02-direct-chat")
+        screenshot("02-direct-chat", "screen-chat")
         compose.onNodeWithTag("chat-image-preview").performClick()
         compose.onNodeWithTag("image-preview-dialog").assertExists()
         compose.onNodeWithTag("image-prompt").performTextInput("两个人一起喝咖啡的温暖画面")
-        screenshot("08-imagegen-draft")
+        Espresso.closeSoftKeyboard()
+        screenshot("08-imagegen-draft", "image-preview-dialog")
         compose.onNodeWithTag("image-preview-close").performClick()
         compose.onNodeWithTag("chat-open-call").performClick()
         compose.onNodeWithTag("screen-call").assertExists()
-        screenshot("05-call-mock")
+        screenshot("05-call-mock", "screen-call")
 
         compose.onNodeWithTag("call-end").performClick()
         compose.onNodeWithTag("nav-back").performClick()
         compose.onNodeWithTag("tab-space").performClick()
         compose.onNodeWithTag("screen-space").assertExists()
-        screenshot("06-space-feed")
+        screenshot("06-space-feed", "screen-space")
 
         compose.onNodeWithTag("tab-settings").performClick()
         compose.onNodeWithTag("screen-settings").assertExists()
-        screenshot("07-settings")
+        screenshot("07-settings", "screen-settings")
 
         compose.onNodeWithTag("tab-home").performClick()
         compose.onNodeWithTag("screen-home")
@@ -108,7 +120,8 @@ class PrototypeUiTest {
         compose.onNodeWithTag("screen-group-chat").assertExists()
         compose.onNodeWithTag("group-chat-input").performTextInput("本地群聊消息")
         compose.onNodeWithTag("group-chat-send").assertIsEnabled().performClick()
-        screenshot("09-group-chat")
+        Espresso.closeSoftKeyboard()
+        screenshot("09-group-chat", "screen-group-chat")
     }
 
     @Test fun localChatAndSpaceActionsRemainInteractive() {
