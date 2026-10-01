@@ -35,6 +35,15 @@ code = "\n".join(
     for path in (ROOT / "app/src/main/java/com/charactermemory/android").rglob("*.kt")
 )
 missing = sorted(tag for tag in expected if ('"' + tag + '"') not in code)
+delegation_import_errors = []
+for screen in (ROOT / "app/src/main/java/com/charactermemory/android/screens").glob("*.kt"):
+    body = screen.read_text(encoding="utf-8")
+    if "by rememberSaveable" in body and (
+        "import androidx.compose.runtime.getValue" not in body
+        or "import androidx.compose.runtime.setValue" not in body
+    ):
+        delegation_import_errors.append(screen.name)
+violations.extend("missing Compose delegate imports: " + f for f in delegation_import_errors)
 status = "PASS" if not violations and not missing else "FAIL"
 result = {
     "status": status,
@@ -43,6 +52,7 @@ result = {
     "prohibited_requested_permissions": violations,
     "expected_screen_count": len(expected),
     "missing_screen_tags": missing,
+    "missing_compose_delegate_imports": delegation_import_errors,
     "note": "Source invariant only; built APK manifest still requires verification."
 }
 out = ROOT / "artifacts/p1-boundary-evidence.json"

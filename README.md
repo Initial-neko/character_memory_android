@@ -81,7 +81,7 @@ Kotlin + Jetpack Compose；ViewModel + StateFlow；OkHttp/Retrofit；Coroutines�
 
 ## 如何开始（当前状态）
 
-**P1 开发分支已包含 Gradle 配置、Compose 界面与测试源码；APK 是否可构建以 GitHub Actions 报告为准。** 本地需安装 Android SDK、JDK 17 和 Gradle 8.9（目前尚未提交标准 Wrapper JAR）。运行：`gradle --no-daemon lintDebug testDebugUnitTest assembleDebug`。当前不申请录音、摄像头、录屏权限，所有页面标记 MOCK。详细门槛见 [P1_ACCEPTANCE.md](docs/P1_ACCEPTANCE.md)。下一批开发应：
+**P1 开发分支已包含 Gradle 配置、Compose 界面与测试源码；APK 是否可构建以 GitHub Actions 报告为准。** 本地需安装 Android SDK、JDK 17 和 Gradle 8.9（目前尚未提交标准 Wrapper JAR）。运行：`gradle --no-daemon lintDebug testDebugUnitTest assembleDebug`。当前不申请录音、摄像头、录屏权限，所有页面标记 MOCK。详细门槛见 [P1_ACCEPTANCE.md](docs/P1_ACCEPTANCE.md)，**新手模拟器操作说明**见 [LOCAL_ANDROID_SETUP.md](docs/LOCAL_ANDROID_SETUP.md)。下一批开发应：
 
 1. 在 Core 实际实现或决定 canonical Direct 会话 ID 和移动设备权限方案，并添加契约测试。
 2. 在此仓库建立 Gradle/Compose 工程和 MockWebServer fixtures。
