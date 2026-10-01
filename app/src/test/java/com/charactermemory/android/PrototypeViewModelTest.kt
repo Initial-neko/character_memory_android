@@ -36,6 +36,32 @@ class PrototypeViewModelTest {
         assertEquals(Screen.HOME, vm.state.value.screen)
     }
 
+    @Test fun mockDirectMessagesStayWithTheirOwnCharacter() {
+        val vm = PrototypeViewModel()
+        vm.openCharacter("rin")
+        vm.sendLocal("只发给 Rin")
+        vm.openCharacter("lex")
+        assertFalse(vm.state.value.chat.any { it.text == "只发给 Rin" })
+        vm.sendLocal("只发给 Lex")
+        vm.openCharacter("rin")
+        assertEquals("只发给 Rin", vm.state.value.chat.last().text)
+        vm.openCharacter("lex")
+        assertEquals("只发给 Lex", vm.state.value.chat.last().text)
+    }
+
+    @Test fun mockGroupMessagesSurviveNavigationWithoutCrossTalk() {
+        val vm = PrototypeViewModel()
+        val first = MockContent.groupNames.first()
+        val second = MockContent.groupNames.last()
+        vm.openGroup(first)
+        vm.sendLocalGroup("第一个群的消息")
+        vm.openGroup(second)
+        assertFalse(vm.state.value.groupChat.any { it.text == "第一个群的消息" })
+        vm.openGroup(first)
+        assertEquals("第一个群的消息", vm.state.value.groupChat.last().text)
+        assertTrue(vm.state.value.groupChat.last().simulated)
+    }
+
     @Test fun localMessagesAreNotBackendMessages() {
         val vm = PrototypeViewModel()
         val before = vm.state.value.chat.size

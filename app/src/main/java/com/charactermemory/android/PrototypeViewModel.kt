@@ -10,7 +10,9 @@ data class PrototypeUiState(
     val selectedCharacterId: String = "rin",
     val selectedGroupName: String = MockContent.groupNames.first(),
     val groupChat: List<ChatBubble> = MockContent.groupChatFor(MockContent.groupNames.first()),
+    val groupMessages: Map<String, List<ChatBubble>> = emptyMap(),
     val chat: List<ChatBubble> = MockContent.initialChat,
+    val directMessages: Map<String, List<ChatBubble>> = emptyMap(),
     val likedPosts: Set<String> = emptySet(),
     val microphoneDemoOn: Boolean = true,
     val cameraDemoOn: Boolean = false,
@@ -33,7 +35,7 @@ class PrototypeViewModel : ViewModel() {
         require(PrototypeRules.characterIdExists(id)) { "Unknown mock character" }
         mutableState.value = mutableState.value.copy(
             selectedCharacterId = id,
-            chat = MockContent.chatFor(id),
+            chat = mutableState.value.directMessages[id] ?: MockContent.chatFor(id),
             screen = Screen.CHAT
         )
     }
@@ -42,14 +44,17 @@ class PrototypeViewModel : ViewModel() {
         require(name in MockContent.groupNames) { "Unknown mock group" }
         mutableState.value = mutableState.value.copy(
             selectedGroupName = name,
-            groupChat = MockContent.groupChatFor(name),
+            groupChat = mutableState.value.groupMessages[name] ?: MockContent.groupChatFor(name),
             screen = Screen.GROUP_CHAT
         )
     }
 
     fun sendLocalGroup(text: String) {
-        mutableState.value = mutableState.value.copy(
-            groupChat = PrototypeRules.appendDemoMessage(mutableState.value.groupChat, text)
+        val current = mutableState.value
+        val updated = PrototypeRules.appendDemoMessage(current.groupChat, text)
+        mutableState.value = current.copy(
+            groupChat = updated,
+            groupMessages = current.groupMessages + (current.selectedGroupName to updated)
         )
     }
 
@@ -64,8 +69,11 @@ class PrototypeViewModel : ViewModel() {
     }
 
     fun sendLocal(text: String) {
-        mutableState.value = mutableState.value.copy(
-            chat = PrototypeRules.appendDemoMessage(mutableState.value.chat, text)
+        val current = mutableState.value
+        val updated = PrototypeRules.appendDemoMessage(current.chat, text)
+        mutableState.value = current.copy(
+            chat = updated,
+            directMessages = current.directMessages + (current.selectedCharacterId to updated)
         )
     }
 

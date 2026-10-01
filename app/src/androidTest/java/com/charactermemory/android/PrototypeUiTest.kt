@@ -104,6 +104,8 @@ class PrototypeUiTest {
             .performScrollToNode(hasTestTag("group-0"))
         compose.onNodeWithTag("group-0").performClick()
         compose.onNodeWithTag("screen-group-chat").assertExists()
+        compose.onNodeWithTag("group-chat-input").performTextInput("本地群聊消息")
+        compose.onNodeWithTag("group-chat-send").assertIsEnabled().performClick()
         screenshot("09-group-chat")
     }
 
