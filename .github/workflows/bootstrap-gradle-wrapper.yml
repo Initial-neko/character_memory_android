@@ -1,0 +1,51 @@
+name: P1 official Gradle Wrapper bootstrap (temporary)
+
+# Runs only on the fix branch and pushes official files back onto that branch.
+# DELETE THIS WORKFLOW BEFORE MERGING THE FIX PR. It must not grant main CI write access.
+on:
+  push:
+    branches: [fix/p1-issue8-evidence-and-layout]
+
+permissions:
+  contents: write
+
+jobs:
+  official-wrapper:
+    if: github.repository == 'Initial-neko/character_memory_android'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Generate Gradle 8.9 scripts and JAR using official Wrapper task
+        run: |
+          gradle --no-daemon wrapper --gradle-version 8.9 --distribution-type bin
+          test -s gradle/wrapper/gradle-wrapper.jar
+          test -s gradlew
+          test -s gradlew.bat
+          test -s gradle/wrapper/gradle-wrapper.properties
+          sha256sum gradle/wrapper/gradle-wrapper.jar
+          grep -F 'gradle-8.9-bin.zip' gradle/wrapper/gradle-wrapper.properties
+          chmod +x gradlew
+      - name: Commit generated wrapper to isolated fix branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add gradlew gradlew.bat gradle/wrapper/gradle-wrapper.jar gradle/wrapper/gradle-wrapper.properties
+          if git diff --cached --quiet; then
+            echo "Official Wrapper already tracked"
+            exit 0
+          fi
+          git commit -m "build: generate official Gradle 8.9 wrapper [skip ci]"
+          git push origin HEAD:fix/p1-issue8-evidence-and-layout
