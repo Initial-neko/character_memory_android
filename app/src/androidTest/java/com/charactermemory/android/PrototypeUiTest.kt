@@ -1,6 +1,9 @@
 package com.charactermemory.android
 
+import android.content.ContentValues
 import android.graphics.Bitmap
+import android.os.Build
+import android.provider.MediaStore
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.captureToImage
@@ -29,11 +32,28 @@ class PrototypeUiTest {
         compose.waitForIdle()
         val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val pictures = requireNotNull(context.getExternalFilesDir("Pictures"))
-        val directory = File(pictures, "p1")
-        check(directory.exists() || directory.mkdirs())
-        FileOutputStream(File(directory, name + ".png")).use {
-            check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // App-specific /sdcard/Android/data is removed when connectedAndroidTest
+            // uninstalls the target APK. A public MediaStore image survives cleanup.
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, "p1-" + name + ".png")
+                put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/CharacterMemoryP1/")
+            }
+            val resolver = context.contentResolver
+            val uri = requireNotNull(resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values))
+            requireNotNull(resolver.openOutputStream(uri)).use {
+                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
+            }
+        } else {
+            // Legacy devices can run the UI assertions but need a separate
+            // screenshot extraction mechanism before instrumented APK uninstall.
+            val pictures = requireNotNull(context.getExternalFilesDir("Pictures"))
+            val directory = File(pictures, "p1")
+            check(directory.exists() || directory.mkdirs())
+            FileOutputStream(File(directory, name + ".png")).use {
+                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
+            }
         }
     }
 

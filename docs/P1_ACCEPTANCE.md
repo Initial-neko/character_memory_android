@@ -16,7 +16,7 @@
 gradle --no-daemon lintDebug testDebugUnitTest assembleDebug
 ~~~
 
-Instrumented emulator test:
+Instrumented emulator test (API 35 stores screenshots through MediaStore in `/sdcard/Pictures/CharacterMemoryP1/` so test-APK removal does not discard evidence):
 
 ~~~bash
 gradle --no-daemon connectedDebugAndroidTest

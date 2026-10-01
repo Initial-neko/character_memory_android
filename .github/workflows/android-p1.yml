@@ -89,7 +89,7 @@ jobs:
             gradle --no-daemon connectedDebugAndroidTest --stacktrace
             result=$?
             mkdir -p artifacts/screenshots
-            adb pull /sdcard/Android/data/com.charactermemory.android/files/Pictures/p1 artifacts/screenshots || true
+            adb pull /sdcard/Pictures/CharacterMemoryP1 artifacts/screenshots || true
             adb logcat -d -t 3000 > artifacts/emulator-logcat.txt || true
             exit $result
       - name: Summarize instrumented evidence
