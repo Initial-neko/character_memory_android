@@ -96,7 +96,7 @@ fun CharacterMemoryPrototype(model: PrototypeViewModel = viewModel()) {
                         Screen.GROUP_CHAT -> state.selectedGroupName
                         Screen.CHARACTER -> "创建新人物"
                         Screen.GROUP -> "创建群聊"
-                        Screen.CALL -> "语音 / 视频通话"
+                        Screen.CALL -> "通话"
                         Screen.SPACE -> "空间"
                         Screen.SETTINGS -> "基础设置"
                     },

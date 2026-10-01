@@ -77,12 +77,14 @@ internal fun CallScreen(state: PrototypeUiState, model: PrototypeViewModel) {
                     )
                     Text(
                         "演示人物画面 · V2 可接虚拟形象",
-                        color = Muted, fontSize = 11.sp
+                        color = Muted, fontSize = 11.sp,
+                        modifier = Modifier.testTag("call-person-caption")
                     )
                 }
                 PanelCard(
-                    Modifier.align(Alignment.BottomEnd)
+                    Modifier.align(if (compact) Alignment.TopEnd else Alignment.BottomEnd)
                         .padding(if (compact) 8.dp else 14.dp)
+                        .testTag("call-local-preview")
                         .size(if (compact) 68.dp else 95.dp, if (compact) 75.dp else 112.dp)
                 ) {
                     Box(

@@ -4,6 +4,8 @@ import android.content.ContentValues
 import android.graphics.Bitmap
 import android.os.Build
 import android.os.SystemClock
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import android.provider.MediaStore
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.performScrollTo
@@ -20,6 +22,7 @@ import androidx.test.uiautomator.UiDevice
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 import java.io.FileOutputStream
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -138,6 +141,17 @@ class PrototypeUiTest {
             device.executeShellCommand("wm size 720x1280")
             compose.onNodeWithTag("character-rin").performClick()
             compose.onNodeWithTag("chat-open-call").performClick()
+            // Regression: the local camera overlay must not cover the
+            // compact character's description as it did in the initial capture.
+            val caption = compose.onNodeWithTag("call-person-caption")
+                .fetchSemanticsNode().boundsInRoot
+            val preview = compose.onNodeWithTag("call-local-preview")
+                .fetchSemanticsNode().boundsInRoot
+            assertTrue(
+                "Camera mock preview overlaps the character caption in narrow portrait",
+                caption.right <= preview.left || caption.left >= preview.right ||
+                    caption.bottom <= preview.top || caption.top >= preview.bottom
+            )
             compose.onNodeWithTag("call-mic-demo").performScrollTo().assertIsDisplayed()
             compose.onNodeWithTag("call-camera-demo").performScrollTo().assertIsDisplayed()
             compose.onNodeWithTag("call-screen-demo").performScrollTo().assertIsDisplayed()
@@ -160,15 +174,34 @@ class PrototypeUiTest {
 
     @Test fun compactChatComposerRemainsVisibleWithIme() {
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        val originalKeyboardSetting = device.executeShellCommand(
+            "settings get secure show_ime_with_hard_keyboard"
+        ).trim()
         try {
+            // CI emulators often emulate a hardware keyboard and suppress
+            // the soft keyboard. Merely typing text does NOT prove the IME
+            // was shown; force it and assert Android's actual IME inset.
+            device.executeShellCommand("settings put secure show_ime_with_hard_keyboard 1")
             device.executeShellCommand("wm size 720x1280")
             compose.onNodeWithTag("character-rin").performClick()
+            compose.onNodeWithTag("chat-input").performClick()
             compose.onNodeWithTag("chat-input").performTextInput("输入法展开时聊天输入框仍应可用")
+            compose.waitUntil(timeoutMillis = 10_000L) {
+                ViewCompat.getRootWindowInsets(compose.activity.window.decorView)
+                    ?.isVisible(WindowInsetsCompat.Type.ime()) == true
+            }
             compose.onNodeWithTag("chat-send").assertIsDisplayed()
             screenshot("12-chat-ime", "screen-chat")
         } finally {
             Espresso.closeSoftKeyboard()
             device.executeShellCommand("wm size reset")
+            if (originalKeyboardSetting == "0" || originalKeyboardSetting == "1") {
+                device.executeShellCommand(
+                    "settings put secure show_ime_with_hard_keyboard $originalKeyboardSetting"
+                )
+            } else {
+                device.executeShellCommand("settings delete secure show_ime_with_hard_keyboard")
+            }
             compose.waitForIdle()
         }
     }
