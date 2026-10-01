@@ -31,6 +31,7 @@ class PrototypeViewModel : ViewModel() {
         require(PrototypeRules.characterIdExists(id)) { "Unknown mock character" }
         mutableState.value = mutableState.value.copy(
             selectedCharacterId = id,
+            chat = MockContent.chatFor(id),
             screen = Screen.CHAT
         )
     }

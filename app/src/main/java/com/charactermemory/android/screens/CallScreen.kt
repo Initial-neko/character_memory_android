@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.sp
 /** P1 deterministic UI screen: offline state, never a Core API request. */
 @Composable
 internal fun CallScreen(state: PrototypeUiState, model: PrototypeViewModel) {
+    val selected = MockContent.characters.firstOrNull { it.id == state.selectedCharacterId }
     Column(Modifier.fillMaxSize().testTag("screen-call").padding(horizontal = 15.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
         DemoBanner("仅是通话布局演示：没有申请麦克风、摄像头或屏幕共享权限")
@@ -40,9 +41,9 @@ internal fun CallScreen(state: PrototypeUiState, model: PrototypeViewModel) {
         Box(Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(26.dp))
             .background(Brush.verticalGradient(listOf(Color(0xFF343353), Color(0xFF182A4A), Navy)))) {
             Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-                Avatar("R", Purple, Modifier.size(115.dp))
+                Avatar(selected?.initials ?: "?", Color(selected?.tint ?: 0xFF9887DA), Modifier.size(115.dp))
                 Spacer(Modifier.height(16.dp))
-                Text("Rin", color = Pale, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                Text(selected?.name ?: "人物", color = Pale, fontSize = 28.sp, fontWeight = FontWeight.Bold)
                 Text("演示人物画面 · V2 可接虚拟形象", color = Muted, fontSize = 12.sp)
             }
             PanelCard(Modifier.align(Alignment.BottomEnd).padding(14.dp).size(95.dp, 112.dp)) {
@@ -56,7 +57,7 @@ internal fun CallScreen(state: PrototypeUiState, model: PrototypeViewModel) {
             Column(Modifier.padding(12.dp)) {
                 Text("你：我给你看看这个页面。", color = Pale, fontSize = 14.sp)
                 Spacer(Modifier.height(4.dp))
-                Text("Rin：字幕 / ASR / TTS 接口将于 P3 接入。", color = Muted, fontSize = 12.sp)
+                Text((selected?.name ?: "人物") + "：字幕 / ASR / TTS 接口将于 P3 接入。", color = Muted, fontSize = 12.sp)
             }
         }
         Spacer(Modifier.height(11.dp))

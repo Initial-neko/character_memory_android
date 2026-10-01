@@ -20,6 +20,7 @@ class PrototypeViewModelTest {
         vm.openCharacter("lex")
         vm.back()
         assertEquals(Screen.HOME, vm.state.value.screen)
+        assertEquals("Lex", vm.state.value.chat.first().author)
     }
 
     @Test fun localMessagesAreNotBackendMessages() {

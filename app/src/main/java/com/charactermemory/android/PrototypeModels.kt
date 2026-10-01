@@ -50,6 +50,14 @@ object MockContent {
         ChatBubble(3, "Rin", "这家咖啡店的氛围好棒，下次带我一起去吧 ☕"),
         ChatBubble(4, "Rin", "我还想为你画一张我们一起喝咖啡的画。")
     )
+    fun chatFor(characterId: String): List<ChatBubble> {
+        val name = characters.firstOrNull { it.id == characterId }?.name
+            ?: throw IllegalArgumentException("Unknown mock character: " + characterId)
+        return initialChat.map { message ->
+            if (message.outbound) message else message.copy(author = name)
+        }
+    }
+
     val posts = listOf(
         SpaceEntry("p1", "Rin", "2 小时前", "今天天气很好！分享一些在咖啡店看到的光影 ☕✨", "照片 · 4 张", 328, 24),
         SpaceEntry("p2", "星野遥", "5 小时前", "新的旅程即将开始！这次也一起出发吧～ 🌟", "照片 · 1 张", 189, 12),
