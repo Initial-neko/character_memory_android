@@ -12,7 +12,7 @@
 
 [单独查看六屏示意图](docs/assets/android-v1-six-screens.svg) · [架构图](docs/assets/android-v1-architecture.svg)
 
-> 仓库内的 SVG 为可版本化的功能结构示意，不等同于产品评审时生成的高保真 PNG；后续开发要以经确认的原型及实际屏幕截图共同验收。
+> 仓库内的 SVG 为可版本化的功能结构示意，不等同于产品评审时生成的高保真 PNG；两张 PNG 原图待按 [设计资产 Issue #6](../../issues/6) 补录。后续开发要以经确认的高保真原图及实际屏幕截图共同验收。
 
 V1 只包括与日常手机体验直接相关的功能：
 
@@ -74,6 +74,8 @@ Kotlin + Jetpack Compose；ViewModel + StateFlow；OkHttp/Retrofit；Coroutines�
 | **P3：音频通话** | ASR/TTS、字幕、录放状态机 | 真机 Mic、播放、打断/结束验收 |
 | **P4：视觉** | CameraX、屏幕授权、关键帧 | 真机前后摄像头、MediaProjection、正确角色视觉回复 |
 | **P5：稳定性/发布** | 权限、连接重试、后台、通知、性能 | CI 产物 + logcat/录屏 + 真机验收报告 |
+
+**阶段跟踪：** [P0 Core API](https://github.com/Initial-neko/character_memory/issues/213) · [P1 App 骨架](../../issues/1) · [P2 核心体验](../../issues/2) · [P3 语音](../../issues/3) · [P4 视觉](../../issues/4) · [P5 发布验收](../../issues/5)。
 
 每次 PR 小步提交；MediaProjection/麦克风等系统能力不允许仅凭 Mock 测试声称真机可用。**未经真实授权和测试，不得声称可以后台持续屏幕共享。**
 
