@@ -3,7 +3,7 @@
 > Character Memory 的 **Android 移动体验端 + 手机传感器端**。这是一个独立客户端，而不是第二套 PersonRuntime。当前仓库为 **V1 设计 / 架构 / 验收基线**；Android 工程、APK、真机验收将在后续 PR 分阶段交付，**尚未宣称实现**。
 
 **PC Core 仓库：** [Initial-neko/character_memory](https://github.com/Initial-neko/character_memory)  
-**权威 API 契约：** [Core — MOBILE_API_CONTRACT.md](https://github.com/Initial-neko/character_memory/blob/main/docs/current/MOBILE_API_CONTRACT.md)  
+**权威 API 契约：** [Core — MOBILE_API_CONTRACT.md](https://github.com/Initial-neko/character_memory/blob/main/docs/current/MOBILE_API_CONTRACT.md) · [19 条已核对路由的机器可读清单](https://github.com/Initial-neko/character_memory/blob/main/docs/contracts/android-v1-route-inventory.json)  
 **手机连接方案：** [Core — MOBILE_ACCESS.md](https://github.com/Initial-neko/character_memory/blob/main/docs/current/MOBILE_ACCESS.md)
 
 ## V1 产品原型
