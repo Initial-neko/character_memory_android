@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import json
+import hashlib
 import os
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -36,11 +37,21 @@ def summarize(root: Path, mode: str) -> dict:
             continue
 
     shots = list((root / "artifacts" / "screenshots").rglob("*.png"))
-    minimum_screenshots = 7 if mode == "emulator" else 0
+    expected_screens = (
+        "p1-01-chat-list.png",
+        "p1-02-direct-chat.png",
+        "p1-03-character-create.png",
+        "p1-04-group-create.png",
+        "p1-05-call-mock.png",
+        "p1-06-space-feed.png",
+        "p1-07-settings.png",
+    ) if mode == "emulator" else ()
+    missing_screens = sorted(set(expected_screens) - {path.name for path in shots})
+    expected_min_tests = 10 if mode == "jvm" else 3
     status = (
         "NOT_RUN" if valid == 0 or tests == 0
         else "FAIL" if failures or errors
-        else "FAIL" if mode == "emulator" and len(shots) < minimum_screenshots
+        else "FAIL" if tests < expected_min_tests or missing_screens
         else "PASS"
     )
     return {
@@ -50,13 +61,18 @@ def summarize(root: Path, mode: str) -> dict:
         "git_sha": os.getenv("GITHUB_SHA") or "LOCAL_UNKNOWN",
         "run_id": os.getenv("GITHUB_RUN_ID") or "LOCAL_UNKNOWN",
         "test_suites": valid,
+        "expected_min_tests": expected_min_tests,
         "tests": tests,
         "passed": max(0, tests - failures - errors - skipped),
         "failures": failures,
         "errors": errors,
         "skipped": skipped,
         "actual_screenshot_count": len(shots),
-        "required_screenshots": minimum_screenshots,
+        "required_screenshots": len(expected_screens),
+        "missing_screenshots": missing_screens,
+        "screenshot_sha256": {
+            path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in shots
+        },
         "real_device": "NOT_RUN",
         "core_api_integration": "NOT_RUN",
         "media_projection": "NOT_RUN",
