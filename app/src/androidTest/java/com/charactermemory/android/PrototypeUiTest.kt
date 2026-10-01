@@ -5,6 +5,8 @@ import android.graphics.Bitmap
 import android.os.Build
 import android.os.SystemClock
 import android.provider.MediaStore
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.performScrollToNode
@@ -14,6 +16,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.uiautomator.UiDevice
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 import java.io.FileOutputStream
@@ -122,6 +125,52 @@ class PrototypeUiTest {
         compose.onNodeWithTag("group-chat-send").assertIsEnabled().performClick()
         Espresso.closeSoftKeyboard()
         screenshot("09-group-chat", "screen-group-chat")
+    }
+
+    /**
+     * Real emulator evidence: force a compact 720x1280-pixel window, then rotate it
+     * to landscape. Buttons must be discoverable and clickable without sideways
+     * scrolling; the landscape screen may scroll vertically.
+     */
+    @Test fun callControlsRemainReachableOnNarrowAndLandscapeDisplays() {
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        try {
+            device.executeShellCommand("wm size 720x1280")
+            compose.onNodeWithTag("character-rin").performClick()
+            compose.onNodeWithTag("chat-open-call").performClick()
+            compose.onNodeWithTag("call-mic-demo").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("call-camera-demo").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("call-screen-demo").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("call-end").performScrollTo().assertIsDisplayed()
+            screenshot("10-call-narrow", "screen-call")
+
+            device.setOrientationLeft()
+            compose.waitForIdle()
+            compose.onNodeWithTag("call-mic-demo").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("call-camera-demo").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("call-screen-demo").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("call-end").performScrollTo().assertIsDisplayed()
+            screenshot("11-call-landscape", "screen-call")
+        } finally {
+            device.setOrientationNatural()
+            device.executeShellCommand("wm size reset")
+            compose.waitForIdle()
+        }
+    }
+
+    @Test fun compactChatComposerRemainsVisibleWithIme() {
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        try {
+            device.executeShellCommand("wm size 720x1280")
+            compose.onNodeWithTag("character-rin").performClick()
+            compose.onNodeWithTag("chat-input").performTextInput("输入法展开时聊天输入框仍应可用")
+            compose.onNodeWithTag("chat-send").assertIsDisplayed()
+            screenshot("12-chat-ime", "screen-chat")
+        } finally {
+            Espresso.closeSoftKeyboard()
+            device.executeShellCommand("wm size reset")
+            compose.waitForIdle()
+        }
     }
 
     @Test fun localChatAndSpaceActionsRemainInteractive() {

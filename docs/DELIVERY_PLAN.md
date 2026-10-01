@@ -1,6 +1,6 @@
 # Android V1 交付计划
 
-Status: **planning baseline**. The repository began as an empty skeleton; no runnable APK or passed test suite is claimed here.
+Status: **P1 implementation landed on main; P2–P5 remain planned**. Baseline P1 CI [run #36872285876](https://github.com/Initial-neko/character_memory_android/actions/runs/36872285876) proves app/debug build and simulator screenshots (JVM 13/13; UI 3/3; 9 screenshots). It does **not** prove real Core connectivity, audio, CameraX or MediaProjection.
 
 ## 0. Product scope
 
@@ -24,7 +24,7 @@ Use **small independently reviewable PRs**, not a single giant all-features PR. 
 ## 2. Milestones / first three PRs
 
 1. **Core contract publication**: human-readable contract and source path inventory, distinguish existing vs proposed. This is documentation only; it does not implement device authentication or canonical direct IDs.
-2. **Android repository bootstrap**: README, prototypes, architecture, plan, acceptance rules; initialize Gradle and Compose in the next implementation PR.
+2. **Android repository bootstrap (delivered by merged PR #7)**: README, prototype/architecture, Kotlin+Compose app, offline screen flows and CI evidence. Remaining fix-ups tracked by #8.
 3. **First end-to-end text conversation**: PC stack+tailnet online → Android sends text → HTTP 202 → SSE character event → history reconciles. This is the first runnable product gate.
 
 Parallel spike in P1: MediaProjection prompt → ImageReader image → local JPEG → existing Vision API on a *real Android device*; keep it an isolated experiment until P4 and do not falsely claim permanent screen sharing without consent.
@@ -53,7 +53,7 @@ Every implementation PR should report:
 ## 5. Initial issues suggested for development
 
 P0: document/verify existing route fixtures; canonical direct-conversation decision; device credential/security RFC.  
-P1: Gradle + Compose bootstrap; 6-screen UI scaffold; MockWebServer; CI artifacts.  
+P1: Gradle + Compose bootstrap, six primary screens + local settings / additional mock surfaces and CI evidence **done**. MockWebServer/API fixture tests **moved to P2**, because P1 has no network stack.  
 P2: Direct 202/SSE/history; character wizard; ensemble lifecycle; group history; Space feed/comments; chat AI Image.  
 P3: CallController + audio turn queue; ASR and TTS binary playback; interruption tests.  
 P4: CameraX preview and switches; Android MediaProjection authorization/FGS; bounded frame selection; Vision observation.  

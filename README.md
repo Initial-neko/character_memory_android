@@ -1,6 +1,6 @@
 # Character Memory Android
 
-> Character Memory 的 **Android 移动体验端 + 手机传感器端**。这是一个独立客户端，而不是第二套 PersonRuntime。当前 `main` 是设计与验收基线；[P1 Draft PR #7](https://github.com/Initial-neko/character_memory_android/pull/7) 已开始开发 Kotlin/Compose 的**离线 Mock 原型**，仅在 CI 实际成功后才可宣称可构建和模拟器通过。P2 以后的 Core/媒体功能均未实现。
+> Character Memory 的 **Android 移动体验端 + 手机传感器端**。这是一个独立客户端，而不是第二套 PersonRuntime。**P1 离线 Mock 原型已通过 [PR #7](https://github.com/Initial-neko/character_memory_android/pull/7) 合并到 `main`**；构建、Lint、13/13 JVM、3/3 模拟器 UI 和 9 张实际截图的基线证据见 [main CI #36872285876](https://github.com/Initial-neko/character_memory_android/actions/runs/36872285876)。**真机视觉验收、真实 Core/API 与媒体功能未因此通过**，后续按阶段开发。
 
 **PC Core 仓库：** [Initial-neko/character_memory](https://github.com/Initial-neko/character_memory)  
 **权威 API 契约：** [Core — MOBILE_API_CONTRACT.md](https://github.com/Initial-neko/character_memory/blob/main/docs/current/MOBILE_API_CONTRACT.md) · [19 条已核对路由的机器可读清单](https://github.com/Initial-neko/character_memory/blob/main/docs/contracts/android-v1-route-inventory.json)  
@@ -12,6 +12,8 @@
 
 [单独查看六屏示意图](docs/assets/android-v1-six-screens.svg) · [架构图](docs/assets/android-v1-architecture.svg)
 
+> 设计 SVG 仅展示**六个核心产品界面**；P1 实际另有一个**精简设置页**及群聊/生图弹窗等派生界面，均有独立的模拟器截图。设置页不是 SVG 第七张图，不能宣称六屏示意图覆盖所有 P1 页面。
+
 > 仓库内的 SVG 为可版本化的功能结构示意，不等同于产品评审时生成的高保真 PNG；两张 PNG 原图待按 [设计资产 Issue #6](https://github.com/Initial-neko/character_memory_android/issues/6) 补录。后续开发要以经确认的高保真原图及实际屏幕截图共同验收。
 
 V1 只包括与日常手机体验直接相关的功能：
@@ -21,7 +23,7 @@ V1 只包括与日常手机体验直接相关的功能：
 | 聊天主页 | 角色和群聊列表、消息预览、未读、进入会话 | 已有角色/群聊/摘要 API；跨端 read state 待统一 |
 | 单人 / 群聊 | 文本、图片、表情、异步实时回复 | 已有 202 + SSE + history API；Android 实现客户端状态 |
 | 一键生成人物 | 自然语言描述 → AI 草稿 → 预览确认 | 已有 draft/create API |
-| 一键生成群聊 | 自然语言 → 成员预览/重试 → 确认群聊 | 已有 ensemble prepare/research/retry/confirm API |
+| 一键生成群聊 | P1 仅固定 Mock 成员预览；**成员重试 / 真正确认建群属于 P2** | Core 已有 ensemble prepare/research/retry/confirm API；App 尚未调用 |
 | 语音聊天 | 麦克风、ASR、TTS、实时字幕、结束 | 已有 Media ASR/TTS + Core SSE；Android 原生音频 |
 | 视频 / 屏幕视觉 | 摄像头前后切换、屏幕共享授权、抽关键帧供 LLM 理解 | 已有 Visual API；Android CameraX + MediaProjection |
 | Space | 分页浏览、评论/回复、媒体播放 | 已有 Space API |
@@ -81,11 +83,11 @@ Kotlin + Jetpack Compose；ViewModel + StateFlow；OkHttp/Retrofit；Coroutines�
 
 ## 如何开始（当前状态）
 
-**P1 开发分支已包含 Gradle 配置、Compose 界面与测试源码；APK 是否可构建以 GitHub Actions 报告为准。** 本地需安装 Android SDK、JDK 17 和 Gradle 8.9（目前尚未提交标准 Wrapper JAR）。运行：`gradle --no-daemon lintDebug testDebugUnitTest assembleDebug`。当前不申请录音、摄像头、录屏权限，所有页面标记 MOCK。详细门槛见 [P1_ACCEPTANCE.md](docs/P1_ACCEPTANCE.md)，**新手模拟器操作说明**见 [LOCAL_ANDROID_SETUP.md](docs/LOCAL_ANDROID_SETUP.md)。下一批开发应：
+**P1 工程及 Debug APK 已在 `main` 经 GitHub Actions 实际构建。** 仓库使用官方 **Gradle 8.9 Wrapper（含经过校验的 JAR）**，请通过 `./gradlew --no-daemon lintDebug testDebugUnitTest assembleDebug` 复现，Windows CMD 可使用 `gradlew.bat`。**本地请显式选择 JDK 17**；SDK 可复用已有 Platform 35/36。CI 成功不等于用户真机通过，且现阶段没有网络、录音、摄像头、录屏权限。验收规范见 [P1_ACCEPTANCE.md](docs/P1_ACCEPTANCE.md)，**Windows Git Bash 环境和模拟器说明**见 [LOCAL_ANDROID_SETUP.md](docs/LOCAL_ANDROID_SETUP.md)。下一批开发应：
 
 1. 在 Core 实际实现或决定 canonical Direct 会话 ID 和移动设备权限方案，并添加契约测试。
-2. 在此仓库建立 Gradle/Compose 工程和 MockWebServer fixtures。
-3. 先完成真实 PC Core 的文字聊天闭环，再推进创建人物/建群/Space，最后逐项做语音和视觉真机验收。
+2. 在现有 Gradle/Compose 原型上建立真实 API 客户端、MockWebServer fixtures 与兼容性测试（P2）。
+3. 先完成真实 PC Core 的文字聊天闭环，再推进创建人物/建群/Space，最后逐项做语音和视觉真机验收。**所有示例头像、图片框和通话画面均为占位，原始高保真 PNG 仍由 Issue #6 单独跟踪。**
 
 所有后端 API 变更必须先或同步进入 Core 仓库契约，更新客户端 fixtures 和兼容性说明。不要在 Android 仓库维护一份会漂移的私有 API 定义。
 

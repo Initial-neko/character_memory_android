@@ -47,9 +47,12 @@ def summarize(root: Path, mode: str) -> dict:
         "p1-07-settings.png",
         "p1-08-imagegen-draft.png",
         "p1-09-group-chat.png",
+        "p1-10-call-narrow.png",
+        "p1-11-call-landscape.png",
+        "p1-12-chat-ime.png",
     ) if mode == "emulator" else ()
     missing_screens = sorted(set(expected_screens) - {path.name for path in shots})
-    expected_min_tests = 10 if mode == "jvm" else 3
+    expected_min_tests = 13 if mode == "jvm" else 5
     status = (
         "NOT_RUN" if valid == 0 or tests == 0
         else "FAIL" if failures or errors

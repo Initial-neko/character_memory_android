@@ -1,6 +1,6 @@
 # Android V1 测试与 AI 验收规范
 
-Status: **acceptance design; not yet implemented**.
+Status: **P1 executed, future P2–P5 acceptance design**. The merged P1 CI [run #36872285876](https://github.com/Initial-neko/character_memory_android/actions/runs/36872285876) has unit tests, Compose emulator UI tests, APK/JUnit and nine screen captures. Real Core and Android media hardware are still NOT RUN.
 
 ## 1. Evidence levels
 
@@ -88,7 +88,7 @@ screenshots/call-camera.png
 screenshots/call-display.png
 ~~~
 
-This doc establishes the **expected outputs**; no screenshots/CI build are claimed until code is committed.
+The P1 baseline has actual screenshot and CI build evidence; **future-stage screenshots** listed here are expectations only. See `docs/P1_ACCEPTANCE.md` for the concrete P1 filenames and current acceptance.
 
 ## 5. CI and developer commands (AFTER Gradle bootstrap)
 

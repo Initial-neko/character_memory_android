@@ -29,15 +29,19 @@ jobs:
           packages: platform-tools
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
           cache-read-only: ${{ github.event_name == 'pull_request' }}
       - name: P1 boundary and screen-tag static assertions
         run: python3 scripts/verify_p1_boundaries.py
+      - name: Verify official Gradle Wrapper checksum
+        run: |
+          echo '498495120a03b9a6ab5d155f5de3c8f0d986a449153702fb80fc80e134484f17  gradle/wrapper/gradle-wrapper.jar' | sha256sum -c -
+          ./gradlew --version
+          grep -F 'distributionSha256Sum=d725d707bfabd4dfdc958c624003b3c80accc03f7037b5122c4b1d0ef15cecab' gradle/wrapper/gradle-wrapper.properties
       - name: Install API 35
         run: |
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
       - name: Verify Gradle, Lint, JVM tests and Debug APK
-        run: gradle --no-daemon lintDebug testDebugUnitTest assembleDebug --stacktrace
+        run: ./gradlew --no-daemon lintDebug testDebugUnitTest assembleDebug --stacktrace
       - name: Summarize test evidence
         if: always()
         run: python3 scripts/summarize_evidence.py --mode jvm --output artifacts/p1-jvm-evidence.json
@@ -69,7 +73,6 @@ jobs:
           packages: platform-tools
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
           cache-read-only: true
       - name: Enable KVM group permissions
         run: |
@@ -86,7 +89,7 @@ jobs:
           disable-animations: true
           script: |
             set +e
-            gradle --no-daemon connectedDebugAndroidTest --stacktrace
+            ./gradlew --no-daemon connectedDebugAndroidTest --stacktrace
             result=$?
             mkdir -p artifacts/screenshots
             adb pull /sdcard/Pictures/CharacterMemoryP1 artifacts/screenshots || true
