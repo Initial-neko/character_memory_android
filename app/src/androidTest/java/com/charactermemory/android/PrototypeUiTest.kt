@@ -4,13 +4,10 @@ import android.content.ContentValues
 import android.graphics.Bitmap
 import android.os.Build
 import android.provider.MediaStore
-import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.performScrollToNode
-import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
@@ -32,7 +29,12 @@ class PrototypeUiTest {
 
     private fun screenshot(name: String) {
         compose.waitForIdle()
-        val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
+        // The image draft is an Android Dialog: activity + dialog are separate
+        // Compose semantics roots. Capture the DEVICE display, not onRoot(),
+        // so overlays, permission UI and the soft keyboard are visible too.
+        val bitmap = requireNotNull(
+            InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+        ) { "Could not capture the Android emulator display" }
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             // App-specific /sdcard/Android/data is removed when connectedAndroidTest
