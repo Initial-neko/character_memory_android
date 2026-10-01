@@ -10,6 +10,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -36,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -47,9 +51,13 @@ internal fun ChatScreen(state: PrototypeUiState, model: PrototypeViewModel) {
     var input by rememberSaveable { mutableStateOf("") }
     var imagePrompt by rememberSaveable { mutableStateOf("") }
     var showImageDialog by rememberSaveable { mutableStateOf(false) }
-    Column(Modifier.fillMaxSize().testTag("screen-chat").padding(horizontal = 14.dp)) {
-        DemoBanner("演示对话 · 发送只写入当前设备的内存，不调用 AI")
-        Spacer(Modifier.height(9.dp))
+    val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    Column(Modifier.fillMaxSize().imePadding().testTag("screen-chat").padding(horizontal = 14.dp)) {
+        // Preserve room for the composer instead of hiding it behind the IME.
+        if (!imeVisible) {
+            DemoBanner("演示对话 · 发送只写入当前设备的内存，不调用 AI")
+            Spacer(Modifier.height(9.dp))
+        }
         LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(13.dp),
             contentPadding = PaddingValues(bottom = 15.dp)) {
@@ -83,11 +91,13 @@ internal fun ChatScreen(state: PrototypeUiState, model: PrototypeViewModel) {
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            OutlinedButton(onClick = { model.show(Screen.CALL) }, modifier = Modifier.testTag("chat-open-call")) { Text("◉ 语音 / 视频") }
-            OutlinedButton(onClick = { showImageDialog = true }, modifier = Modifier.testTag("chat-image-preview")) {
-                Text("✦ AI 生图（预览）")
+        if (!imeVisible) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedButton(onClick = { model.show(Screen.CALL) }, modifier = Modifier.testTag("chat-open-call")) { Text("◉ 语音 / 视频") }
+                OutlinedButton(onClick = { showImageDialog = true }, modifier = Modifier.testTag("chat-image-preview")) {
+                    Text("✦ AI 生图（预览）")
+                }
             }
         }
         if (showImageDialog) {

@@ -191,6 +191,23 @@ class PrototypeUiTest {
                     ?.isVisible(WindowInsetsCompat.Type.ime()) == true
             }
             compose.onNodeWithTag("chat-send").assertIsDisplayed()
+            val decor = compose.activity.window.decorView
+            val imeHeight = ViewCompat.getRootWindowInsets(decor)
+                ?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
+            assertTrue("The OS reports no keyboard height", imeHeight > 0)
+            val keyboardTop = decor.height - imeHeight
+            val sendBounds = compose.onNodeWithTag("chat-send")
+                .fetchSemanticsNode().boundsInWindow
+            val inputBounds = compose.onNodeWithTag("chat-input")
+                .fetchSemanticsNode().boundsInWindow
+            assertTrue(
+                "Chat input hidden by keyboard: ${inputBounds.bottom} > $keyboardTop",
+                inputBounds.bottom <= keyboardTop + 8f
+            )
+            assertTrue(
+                "Chat send hidden by keyboard: ${sendBounds.bottom} > $keyboardTop",
+                sendBounds.bottom <= keyboardTop + 8f
+            )
             screenshot("12-chat-ime", "screen-chat")
         } finally {
             Espresso.closeSoftKeyboard()
