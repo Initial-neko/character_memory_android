@@ -27,6 +27,8 @@ jobs:
         with:
           gradle-version: '8.9'
           cache-read-only: ${{ github.event_name == 'pull_request' }}
+      - name: P1 boundary and screen-tag static assertions
+        run: python3 scripts/verify_p1_boundaries.py
       - name: Install API 35
         run: |
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
