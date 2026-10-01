@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.asStateFlow
 data class PrototypeUiState(
     val screen: Screen = Screen.HOME,
     val selectedCharacterId: String = "rin",
+    val selectedGroupName: String = MockContent.groupNames.first(),
+    val groupChat: List<ChatBubble> = MockContent.groupChatFor(MockContent.groupNames.first()),
     val chat: List<ChatBubble> = MockContent.initialChat,
     val likedPosts: Set<String> = emptySet(),
     val microphoneDemoOn: Boolean = true,
@@ -33,6 +35,21 @@ class PrototypeViewModel : ViewModel() {
             selectedCharacterId = id,
             chat = MockContent.chatFor(id),
             screen = Screen.CHAT
+        )
+    }
+
+    fun openGroup(name: String) {
+        require(name in MockContent.groupNames) { "Unknown mock group" }
+        mutableState.value = mutableState.value.copy(
+            selectedGroupName = name,
+            groupChat = MockContent.groupChatFor(name),
+            screen = Screen.GROUP_CHAT
+        )
+    }
+
+    fun sendLocalGroup(text: String) {
+        mutableState.value = mutableState.value.copy(
+            groupChat = PrototypeRules.appendDemoMessage(mutableState.value.groupChat, text)
         )
     }
 

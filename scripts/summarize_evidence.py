@@ -45,6 +45,8 @@ def summarize(root: Path, mode: str) -> dict:
         "p1-05-call-mock.png",
         "p1-06-space-feed.png",
         "p1-07-settings.png",
+        "p1-08-imagegen-draft.png",
+        "p1-09-group-chat.png",
     ) if mode == "emulator" else ()
     missing_screens = sorted(set(expected_screens) - {path.name for path in shots})
     expected_min_tests = 10 if mode == "jvm" else 3

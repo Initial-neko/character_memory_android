@@ -23,6 +23,19 @@ class PrototypeViewModelTest {
         assertEquals("Lex", vm.state.value.chat.first().author)
     }
 
+    @Test fun existingGroupOpensGroupChatWithoutCreatingAnotherGroup() {
+        val vm = PrototypeViewModel()
+        vm.openGroup(MockContent.groupNames.last())
+        assertEquals(Screen.GROUP_CHAT, vm.state.value.screen)
+        assertEquals(MockContent.groupNames.last(), vm.state.value.selectedGroupName)
+        assertEquals("Rin", vm.state.value.groupChat.first().author)
+        vm.sendLocalGroup("  Mock 群聊消息  ")
+        assertTrue(vm.state.value.groupChat.last().simulated)
+        assertEquals("Mock 群聊消息", vm.state.value.groupChat.last().text)
+        vm.back()
+        assertEquals(Screen.HOME, vm.state.value.screen)
+    }
+
     @Test fun localMessagesAreNotBackendMessages() {
         val vm = PrototypeViewModel()
         val before = vm.state.value.chat.size

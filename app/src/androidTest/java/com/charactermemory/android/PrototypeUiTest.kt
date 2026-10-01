@@ -6,6 +6,8 @@ import android.os.Build
 import android.provider.MediaStore
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onRoot
@@ -78,6 +80,11 @@ class PrototypeUiTest {
         compose.onNodeWithTag("character-rin").performClick()
         compose.onNodeWithTag("screen-chat").assertExists()
         screenshot("02-direct-chat")
+        compose.onNodeWithTag("chat-image-preview").performClick()
+        compose.onNodeWithTag("image-preview-dialog").assertExists()
+        compose.onNodeWithTag("image-prompt").performTextInput("两个人一起喝咖啡的温暖画面")
+        screenshot("08-imagegen-draft")
+        compose.onNodeWithTag("image-preview-close").performClick()
         compose.onNodeWithTag("chat-open-call").performClick()
         compose.onNodeWithTag("screen-call").assertExists()
         screenshot("05-call-mock")
@@ -91,6 +98,13 @@ class PrototypeUiTest {
         compose.onNodeWithTag("tab-settings").performClick()
         compose.onNodeWithTag("screen-settings").assertExists()
         screenshot("07-settings")
+
+        compose.onNodeWithTag("tab-home").performClick()
+        compose.onNodeWithTag("screen-home")
+            .performScrollToNode(hasTestTag("group-0"))
+        compose.onNodeWithTag("group-0").performClick()
+        compose.onNodeWithTag("screen-group-chat").assertExists()
+        screenshot("09-group-chat")
     }
 
     @Test fun localChatAndSpaceActionsRemainInteractive() {

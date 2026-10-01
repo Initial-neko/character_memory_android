@@ -93,6 +93,7 @@ fun CharacterMemoryPrototype(model: PrototypeViewModel = viewModel()) {
                     title = when (state.screen) {
                         Screen.HOME -> "Character Memory"
                         Screen.CHAT -> MockContent.characters.firstOrNull { it.id == state.selectedCharacterId }?.name ?: "聊天"
+                        Screen.GROUP_CHAT -> state.selectedGroupName
                         Screen.CHARACTER -> "创建新人物"
                         Screen.GROUP -> "创建群聊"
                         Screen.CALL -> "语音 / 视频通话"
@@ -131,6 +132,7 @@ fun CharacterMemoryPrototype(model: PrototypeViewModel = viewModel()) {
                 when (state.screen) {
                     Screen.HOME -> HomeScreen(model)
                     Screen.CHAT -> ChatScreen(state, model)
+                    Screen.GROUP_CHAT -> GroupChatScreen(state, model)
                     Screen.CHARACTER -> CreateCharacterScreen()
                     Screen.GROUP -> CreateGroupScreen()
                     Screen.CALL -> CallScreen(state, model)

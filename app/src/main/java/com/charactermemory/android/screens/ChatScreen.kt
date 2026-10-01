@@ -18,7 +18,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.OutlinedButton
@@ -43,6 +45,8 @@ import androidx.compose.ui.unit.sp
 @Composable
 internal fun ChatScreen(state: PrototypeUiState, model: PrototypeViewModel) {
     var input by rememberSaveable { mutableStateOf("") }
+    var imagePrompt by rememberSaveable { mutableStateOf("") }
+    var showImageDialog by rememberSaveable { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().testTag("screen-chat").padding(horizontal = 14.dp)) {
         DemoBanner("演示对话 · 发送只写入当前设备的内存，不调用 AI")
         Spacer(Modifier.height(9.dp))
@@ -82,7 +86,40 @@ internal fun ChatScreen(state: PrototypeUiState, model: PrototypeViewModel) {
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             OutlinedButton(onClick = { model.show(Screen.CALL) }, modifier = Modifier.testTag("chat-open-call")) { Text("◉ 语音 / 视频") }
-            OutlinedButton(onClick = { model.show(Screen.CHARACTER) }) { Text("✦ AI 生图（展示）") }
+            OutlinedButton(onClick = { showImageDialog = true }, modifier = Modifier.testTag("chat-image-preview")) {
+                Text("✦ AI 生图（预览）")
+            }
+        }
+        if (showImageDialog) {
+            AlertDialog(
+                onDismissRequest = { showImageDialog = false },
+                modifier = Modifier.testTag("image-preview-dialog"),
+                title = { Text("AI 生图草稿（Mock）") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Text("仅模拟对话内生图入口，不调用模型，也不发送任何图片。",
+                            color = Muted, fontSize = 12.sp)
+                        OutlinedTextField(
+                            value = imagePrompt,
+                            onValueChange = { imagePrompt = it },
+                            label = { Text("描述你想要生成的画面") },
+                            modifier = Modifier.fillMaxWidth().testTag("image-prompt")
+                        )
+                        Box(
+                            Modifier.fillMaxWidth().height(95.dp).clip(RoundedCornerShape(12.dp))
+                                .background(Brush.horizontalGradient(listOf(Color(0xFF24456A), Color(0xFF534476)))),
+                            contentAlignment = Alignment.Center
+                        ) { Text("图片草稿占位 · 未生成", color = Pale) }
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = { showImageDialog = false },
+                        modifier = Modifier.testTag("image-preview-close")
+                    ) { Text("完成预览") }
+                },
+                dismissButton = { TextButton(onClick = { showImageDialog = false }) { Text("取消") } }
+            )
         }
         Spacer(Modifier.height(6.dp))
         Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {

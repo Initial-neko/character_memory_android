@@ -31,7 +31,7 @@ P1 CI records `app-debug.apk`, XML test results, lint, screenshot files and JSON
 | Debug compile | PASS | APK + build logs |
 | JVM tests | ≥10, 0 failures | JUnit XML |
 | UI tests | ≥3, 0 failures | instrumentation XML |
-| Actual emulator screenshots | ≥7 | 01-home through 07-settings PNG |
+| Actual emulator screenshots | ≥9 | seven base screens + image draft + existing group chat |
 | Six-screen navigation | PASS | UI semantic tags, no coordinate-only taps |
 | Static lint | PASS | Android lint report |
 | Real MediaProjection | NOT RUN in P1 | not implemented |
@@ -45,6 +45,8 @@ P1 CI records `app-debug.apk`, XML test results, lint, screenshot files and JSON
 - [ ] Main landing displays stable character/group rows with readable labels.
 - [ ] Character creation requires description and presents visibly **mock** preview.
 - [ ] Group creation requires prompt, preview never silently creates group.
+- [ ] Existing group opens its own mock group chat, not the create-group form.
+- [ ] In-chat AI image opens a mock image draft, not the character-creation page.
 - [ ] Chat send appends local **not-sent** item; no AI is faked.
 - [ ] Call shows subtitles and demo status, no OS permissions requested.
 - [ ] Space scrolls and likes change visually, never modify real server.

@@ -71,15 +71,16 @@ internal fun HomeScreen(model: PrototypeViewModel) {
                 }
             }
         }
-        item { SectionHeading("群聊", "点击后进入 Mock 群聊预览") }
-        items(MockContent.groupNames) { name ->
-            PanelCard(Modifier.fillMaxWidth().clickable { model.show(Screen.GROUP) }) {
+        item { SectionHeading("群聊", "点击后进入本地 Mock 群聊，不创建新群") }
+        items(MockContent.groupNames, key = { it }) { name ->
+            PanelCard(Modifier.fillMaxWidth().clickable { model.openGroup(name) }
+                .testTag("group-" + MockContent.groupNames.indexOf(name))) {
                 Row(Modifier.fillMaxWidth().padding(17.dp), verticalAlignment = Alignment.CenterVertically) {
                     Avatar("群", Cyan)
                     Spacer(Modifier.width(12.dp))
                     Column {
                         Text(name, color = Pale, fontSize = 16.sp)
-                        Text("模拟群聊 · 新成员与消息将在 P2 接入", color = Muted, fontSize = 12.sp)
+                        Text("Mock 群聊消息 · 发送只保存在本地", color = Muted, fontSize = 12.sp)
                     }
                 }
             }

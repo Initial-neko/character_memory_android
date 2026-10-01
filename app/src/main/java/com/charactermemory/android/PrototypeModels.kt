@@ -5,7 +5,7 @@ package com.charactermemory.android
  * P2 must replace this provider with API-backed repositories without modifying the
  * user-visible presentation contract.
  */
-enum class Screen { HOME, CHAT, CHARACTER, GROUP, CALL, SPACE, SETTINGS }
+enum class Screen { HOME, CHAT, GROUP_CHAT, CHARACTER, GROUP, CALL, SPACE, SETTINGS }
 
 data class CharacterPreview(
     val id: String,
@@ -56,6 +56,16 @@ object MockContent {
         return initialChat.map { message ->
             if (message.outbound) message else message.copy(author = name)
         }
+    }
+
+    fun groupChatFor(name: String): List<ChatBubble> {
+        require(name in groupNames) { "Unknown mock group: $name" }
+        return listOf(
+            ChatBubble(1, "Rin", "大家晚上好，最近发现了一个很有意思的地方。"),
+            ChatBubble(2, "星野遥", "听起来不错！有什么值得分享的？"),
+            ChatBubble(3, "我", "下次一起去吧。", outbound = true),
+            ChatBubble(4, "Lex", "我整理下路线和时间。")
+        )
     }
 
     val posts = listOf(
