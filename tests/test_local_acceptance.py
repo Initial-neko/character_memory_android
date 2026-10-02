@@ -157,6 +157,31 @@ class PathAndSafetyTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             self.assertEqual(a.output_dir(d), Path(d).resolve())
 
+    def test_choose_checkout_rejects_non_android_directory(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(ValueError):
+                a.choose_checkout(d)
+
+    def test_choose_checkout_accepts_android_skeleton(self):
+        with tempfile.TemporaryDirectory() as d:
+            target = Path(d)
+            (target / "app").mkdir()
+            (target / "settings.gradle.kts").write_text("include(\":app\")")
+            (target / "app/build.gradle.kts").write_text("plugins {}")
+            self.assertEqual(a.choose_checkout(d), target.resolve())
+
+    def test_checkout_switch_is_explicit(self):
+        # A different checkout may be selected, but the tool must NOT run
+        # a Git checkout, reset or modify its HEAD.
+        with tempfile.TemporaryDirectory() as d:
+            target = Path(d)
+            (target / "app").mkdir()
+            (target / "settings.gradle.kts").touch()
+            (target / "app/build.gradle.kts").touch()
+            with mock.patch.object(a, "ROOT", target):
+                self.assertRaises(ValueError, a.output_dir, str(target / "artifacts"))
+
+
     def test_disallow_nonloopback_or_credentials(self):
         bad = (
             "https://example.com", "http://10.0.2.2:8000",
@@ -240,6 +265,7 @@ class ReadOnlyCoreTest(unittest.TestCase):
         cls.thread.join(timeout=3)
 
     def test_only_four_gets_no_unsafe_post(self):
+        LocalApiHandler.requests = []
         with tempfile.TemporaryDirectory() as d:
             with mock.patch.object(a, "git_state", return_value={"commit": "a" * 40,
                                                                   "problems": []}):
