@@ -1,22 +1,31 @@
 package com.charactermemory.android
 
 import android.content.ContentValues
+import android.content.Intent
 import android.graphics.Bitmap
 import android.os.Build
 import android.os.SystemClock
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import android.provider.MediaStore
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.performScrollToNode
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.AndroidComposeTestRule
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.uiautomator.UiDevice
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 import java.io.FileOutputStream
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -27,7 +36,17 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class PrototypeUiTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    @get:Rule val compose = AndroidComposeTestRule(
+        activityRule = ActivityScenarioRule<MainActivity>(
+            Intent(ApplicationProvider.getApplicationContext(), MainActivity::class.java)
+                .putExtra("p1_mock", true)
+        ),
+        activityProvider = { rule ->
+            var activity: MainActivity? = null
+            rule.scenario.onActivity { activity = it }
+            requireNotNull(activity)
+        }
+    )
 
     private fun screenshot(name: String, expectedTag: String) {
         // Asserting the Compose semantics tree is not sufficient to synchronize
@@ -122,6 +141,99 @@ class PrototypeUiTest {
         compose.onNodeWithTag("group-chat-send").assertIsEnabled().performClick()
         Espresso.closeSoftKeyboard()
         screenshot("09-group-chat", "screen-group-chat")
+    }
+
+    /**
+     * Real emulator evidence: force a compact 720x1280-pixel window, then rotate it
+     * to landscape. Buttons must be discoverable and clickable without sideways
+     * scrolling; the landscape screen may scroll vertically.
+     */
+    @Test fun callControlsRemainReachableOnNarrowAndLandscapeDisplays() {
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        try {
+            device.executeShellCommand("wm size 720x1280")
+            compose.onNodeWithTag("character-rin").performClick()
+            compose.onNodeWithTag("chat-open-call").performClick()
+            // Regression: the local camera overlay must not cover the
+            // compact character's description as it did in the initial capture.
+            val caption = compose.onNodeWithTag("call-person-caption")
+                .fetchSemanticsNode().boundsInRoot
+            val preview = compose.onNodeWithTag("call-local-preview")
+                .fetchSemanticsNode().boundsInRoot
+            assertTrue(
+                "Camera mock preview overlaps the character caption in narrow portrait",
+                caption.right <= preview.left || caption.left >= preview.right ||
+                    caption.bottom <= preview.top || caption.top >= preview.bottom
+            )
+            compose.onNodeWithTag("call-mic-demo").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("call-camera-demo").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("call-screen-demo").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("call-end").performScrollTo().assertIsDisplayed()
+            screenshot("10-call-narrow", "screen-call")
+
+            device.setOrientationLeft()
+            compose.waitForIdle()
+            compose.onNodeWithTag("call-mic-demo").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("call-camera-demo").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("call-screen-demo").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("call-end").performScrollTo().assertIsDisplayed()
+            screenshot("11-call-landscape", "screen-call")
+        } finally {
+            device.setOrientationNatural()
+            device.executeShellCommand("wm size reset")
+            compose.waitForIdle()
+        }
+    }
+
+    @Test fun compactChatComposerRemainsVisibleWithIme() {
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        val originalKeyboardSetting = device.executeShellCommand(
+            "settings get secure show_ime_with_hard_keyboard"
+        ).trim()
+        try {
+            // CI emulators often emulate a hardware keyboard and suppress
+            // the soft keyboard. Merely typing text does NOT prove the IME
+            // was shown; force it and assert Android's actual IME inset.
+            device.executeShellCommand("settings put secure show_ime_with_hard_keyboard 1")
+            device.executeShellCommand("wm size 720x1280")
+            compose.onNodeWithTag("character-rin").performClick()
+            compose.onNodeWithTag("chat-input").performClick()
+            compose.onNodeWithTag("chat-input").performTextInput("输入法展开时聊天输入框仍应可用")
+            compose.waitUntil(timeoutMillis = 10_000L) {
+                ViewCompat.getRootWindowInsets(compose.activity.window.decorView)
+                    ?.isVisible(WindowInsetsCompat.Type.ime()) == true
+            }
+            compose.onNodeWithTag("chat-send").assertIsDisplayed()
+            val decor = compose.activity.window.decorView
+            val imeHeight = ViewCompat.getRootWindowInsets(decor)
+                ?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
+            assertTrue("The OS reports no keyboard height", imeHeight > 0)
+            val keyboardTop = decor.height - imeHeight
+            val sendBounds = compose.onNodeWithTag("chat-send")
+                .fetchSemanticsNode().boundsInWindow
+            val inputBounds = compose.onNodeWithTag("chat-input")
+                .fetchSemanticsNode().boundsInWindow
+            assertTrue(
+                "Chat input hidden by keyboard: ${inputBounds.bottom} > $keyboardTop",
+                inputBounds.bottom <= keyboardTop + 8f
+            )
+            assertTrue(
+                "Chat send hidden by keyboard: ${sendBounds.bottom} > $keyboardTop",
+                sendBounds.bottom <= keyboardTop + 8f
+            )
+            screenshot("12-chat-ime", "screen-chat")
+        } finally {
+            Espresso.closeSoftKeyboard()
+            device.executeShellCommand("wm size reset")
+            if (originalKeyboardSetting == "0" || originalKeyboardSetting == "1") {
+                device.executeShellCommand(
+                    "settings put secure show_ime_with_hard_keyboard $originalKeyboardSetting"
+                )
+            } else {
+                device.executeShellCommand("settings delete secure show_ime_with_hard_keyboard")
+            }
+            compose.waitForIdle()
+        }
     }
 
     @Test fun localChatAndSpaceActionsRemainInteractive() {

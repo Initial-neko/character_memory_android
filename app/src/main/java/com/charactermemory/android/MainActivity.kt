@@ -60,6 +60,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.charactermemory.android.live.LiveApp
+import com.charactermemory.android.live.LiveViewModel
+import com.charactermemory.android.data.ServerConfig
 
 internal val Navy = Color(0xFF091120)
 internal val Panel = Color(0xFF151F31)
@@ -73,7 +76,15 @@ internal val Cyan = Color(0xFF76D4E9)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { CharacterMemoryPrototype() }
+        val provisioned = if (BuildConfig.DEBUG && !intent.getBooleanExtra("p1_mock", false)) {
+            intent.getStringExtra("initial_core_url")?.let { core ->
+                runCatching { ServerConfig.normalize(core, intent.getStringExtra("initial_media_url") ?: "") }.getOrNull()
+            }
+        } else null
+        setContent {
+            if (intent.getBooleanExtra("p1_mock", false)) CharacterMemoryPrototype()
+            else LiveApp(model = viewModel(factory = LiveViewModel.factory(this, provisioned)))
+        }
     }
 }
 
@@ -96,7 +107,7 @@ fun CharacterMemoryPrototype(model: PrototypeViewModel = viewModel()) {
                         Screen.GROUP_CHAT -> state.selectedGroupName
                         Screen.CHARACTER -> "创建新人物"
                         Screen.GROUP -> "创建群聊"
-                        Screen.CALL -> "语音 / 视频通话"
+                        Screen.CALL -> "通话"
                         Screen.SPACE -> "空间"
                         Screen.SETTINGS -> "基础设置"
                     },

@@ -1,6 +1,6 @@
 # Android V1 交付计划
 
-Status: **planning baseline**. The repository began as an empty skeleton; no runnable APK or passed test suite is claimed here.
+Status: **P1 implementation landed on main; P2 client source implemented, current CI and user backend acceptance pending; P3–P5 planned**. Historical P1 CI [run #36872285876](https://github.com/Initial-neko/character_memory_android/actions/runs/36872285876) proves its own app/debug build and screenshots (JVM 13/13; UI 3/3; 9 screenshots), not the current commit or real Core/media functionality. Current P2 setup/acceptance boundaries are maintained in [P2_SETUP.md](P2_SETUP.md).
 
 ## 0. Product scope
 
@@ -14,7 +14,7 @@ Status: **planning baseline**. The repository began as an empty skeleton; no run
 |---|---|---|---|
 | P0 — Contract | Publish implemented endpoint inventory; agree direct conversation ID migration, pairing scopes and typed error handling | Pin Core contract; JSON/SSE fixtures; HTTP client tests | Contract docs reviewed, route fixtures verified against Core |
 | P1 — Bootstrap | Minimal dev/mock fixture data | Kotlin+Compose shell, theme, six UI surfaces, status page, mock client, Gradle CI | Debug APK builds, six screenshot baselines, emulator navigation tests |
-| P2 — Product | Direct ID cross-client consistency; optional read-state | Chat+SSE+reconcile, character draft/create, ensemble, groups, Space, ImageGen | Real PC message 202→SSE→history; duplicate & reconnect tests; mock product flows |
+| P2 — Product | Consume existing Core APIs; Core #213 migration excluded | Chat+SSE+reconcile, character draft/create, ensemble, groups, Space, ImageGen | JVM + emulator fixture evidence; real PC 202→SSE→history separately accepted by user |
 | P3 — Voice | No new ASR/TTS business logic required | Native mic record, VAD/segmenting, ASR request, TTS queue, speaker/audio focus, call state | Fixed WAV fixture + real headset/mic playback and cancel tests |
 | P4 — Vision | Reuse existing bounded visual routes; consider session binding if background share outlives foreground UI | CameraX preview/switch; MediaProjection prompt/FGS; keyframes/limiter | Real phone correct frame to correct character, permissions/stop/lock/network scenarios |
 | P5 — Acceptance | No regression to PC WebUI | Performance+crash/security/notification/release polish | CI reports, hardware logcat + screen record, signed candidate APK, explicit test matrix |
@@ -24,7 +24,7 @@ Use **small independently reviewable PRs**, not a single giant all-features PR. 
 ## 2. Milestones / first three PRs
 
 1. **Core contract publication**: human-readable contract and source path inventory, distinguish existing vs proposed. This is documentation only; it does not implement device authentication or canonical direct IDs.
-2. **Android repository bootstrap**: README, prototypes, architecture, plan, acceptance rules; initialize Gradle and Compose in the next implementation PR.
+2. **Android repository bootstrap (delivered by merged PR #7)**: README, prototype/architecture, Kotlin+Compose app, offline screen flows and CI evidence. Remaining fix-ups tracked by #8.
 3. **First end-to-end text conversation**: PC stack+tailnet online → Android sends text → HTTP 202 → SSE character event → history reconciles. This is the first runnable product gate.
 
 Parallel spike in P1: MediaProjection prompt → ImageReader image → local JPEG → existing Vision API on a *real Android device*; keep it an isolated experiment until P4 and do not falsely claim permanent screen sharing without consent.
@@ -53,7 +53,7 @@ Every implementation PR should report:
 ## 5. Initial issues suggested for development
 
 P0: document/verify existing route fixtures; canonical direct-conversation decision; device credential/security RFC.  
-P1: Gradle + Compose bootstrap; 6-screen UI scaffold; MockWebServer; CI artifacts.  
+P1: Gradle + Compose bootstrap, six primary screens + local settings / additional mock surfaces and CI evidence **done**. MockWebServer/API fixture tests **moved to P2**, because P1 has no network stack.  
 P2: Direct 202/SSE/history; character wizard; ensemble lifecycle; group history; Space feed/comments; chat AI Image.  
 P3: CallController + audio turn queue; ASR and TTS binary playback; interruption tests.  
 P4: CameraX preview and switches; Android MediaProjection authorization/FGS; bounded frame selection; Vision observation.  

@@ -1,9 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- P1 is intentionally OFFLINE and does not request microphone, camera, or screen permissions. -->
+    <!-- P2 accesses private Core HTTPS. P1 remains an explicit offline demo;
+         native microphone/camera/screen capture belong to later phases. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <application
         android:allowBackup="false"
         android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:theme="@style/Theme.CharacterMemory"
         android:supportsRtl="true"
         android:usesCleartextTraffic="false">

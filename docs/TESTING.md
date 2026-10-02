@@ -1,6 +1,23 @@
 # Android V1 测试与 AI 验收规范
 
-Status: **acceptance design; not yet implemented**.
+Status: **P1 historical CI executed; P2 source and fixture automation added; current execution evidence is commit-specific; P3–P5 remain design**. Historical P1 CI [run #36872285876](https://github.com/Initial-neko/character_memory_android/actions/runs/36872285876) has its own APK/JUnit and nine screen captures. Current P1/P2 gates are listed below. Real Core and Android media hardware remain NOT RUN until separately verified.
+
+## 当前自动化门槛
+
+`scripts/summarize_evidence.py` 按 `--profile p1`（默认）或 `--profile p2` 分开汇总。P1 只计 `PrototypeRulesTest` / `PrototypeViewModelTest` / `PrototypeUiTest`；P2 计新增 API/business/UI 测试。任何 skipped、failure/error、缺失/非法 XML、重复 testcase identity 都不能 PASS。截图按 `p1-` / `p2-` 前缀隔离，缺失、重复或多余的同阶段文件名会失败；JSON 保存原始 PNG 的 SHA-256 和实际 git SHA。
+
+| 证据 | P1 | P2 |
+|---|---|---|
+| JVM | ≥13，0 失败/错误/跳过 | ≥25（transport/projection 16 + LiveRules 9），0 失败/错误/跳过 |
+| 模拟器 | PrototypeUiTest ≥5 | LiveApiUiTest ≥6，注入 HTTPS MockWebServer |
+| 截图 | p1-01 至 p1-12，固定完整文件名 | 下列 9 个固定文件名 |
+| 真实 Core/真机媒体 | NOT RUN | 用户后端验收；媒体 P3–P5 尚未实现 |
+
+P2 截图保存到 `/sdcard/Pictures/CharacterMemoryP2/`：`p2-01-settings.png`、`p2-02-roster.png`、`p2-03-direct-chat.png`、`p2-04-chat-ime.png`、`p2-05-space.png`、`p2-06-character-draft.png`、`p2-07-ensemble-preview.png`、`p2-08-image-draft.png`、`p2-09-group-chat.png`。不能使用设计图或旧提交截图填补。
+
+CI 先运行 `python3 -m unittest discover -s scripts -p 'test_*.py' -v`，覆盖 skipped/非法与缺失 XML、阶段隔离、缺图和 SHA。Android JVM 使用两次真实 `--rerun-tasks` 执行，第二轮先清除上一轮输出；各轮 XML/JSON 保存在 `artifacts/jvm-run-1/` 和 `artifacts/jvm-run-2/`。构建任务保留 APK/JUnit/lint，模拟器保留截图/JUnit/logcat。没有 `continue-on-error` 或静默忽略必需截图的回退。
+
+源码边界脚本允许共享 APK 的 INTERNET；它禁止媒体/捕获权限，并检查 P1 Mock 源码不依赖网络或 `live/data` 客户端。P1 必须通过显式 `p1_mock=true` 启动，普通用户启动真实 P2。脚本只证明源码约束，不能替代最终 APK 合并 Manifest 或设备行为验证。
 
 ## 1. Evidence levels
 
@@ -61,7 +78,7 @@ fixtures/
   visual-observation-rejected.json
 ~~~
 
-Read the [Core mobile API contract](https://github.com/Initial-neko/character_memory/blob/main/docs/current/MOBILE_API_CONTRACT.md) and source models before adding/changing fixtures. Later add automated Core-generated schema checks so docs and fixtures do not drift.
+Read the [pinned Core 508c6f0 mobile API contract](https://github.com/Initial-neko/character_memory/blob/508c6f0/docs/current/MOBILE_API_CONTRACT.md) and actual source models before adding/changing fixtures. P2 uses test-local synthetic JSON/SSE fixtures; the directory above is a future-stage catalog, not a claim that all files exist. Provenance and backend acceptance are maintained in [P2_SETUP.md](P2_SETUP.md). Later add automated Core-generated schema checks so docs and fixtures do not drift.
 
 ## 4. AI-driven UI inspection
 
@@ -88,17 +105,17 @@ screenshots/call-camera.png
 screenshots/call-display.png
 ~~~
 
-This doc establishes the **expected outputs**; no screenshots/CI build are claimed until code is committed.
+The P1 baseline has actual screenshot and CI build evidence; **future-stage screenshots** listed here are expectations only. See `docs/P1_ACCEPTANCE.md` for the concrete P1 filenames and current acceptance.
 
-## 5. CI and developer commands (AFTER Gradle bootstrap)
+## 5. CI and developer commands
 
 ~~~bash
-./gradlew lintDebug testDebugUnitTest assembleDebug
-./gradlew connectedDebugAndroidTest
+./gradlew --offline --no-daemon lintDebug testDebugUnitTest assembleDebug --rerun-tasks
+./gradlew --offline --no-daemon connectedDebugAndroidTest
 adb logcat -d > logcat.txt
 ~~~
 
-The instrumentation task requires an available emulator/device; its CI runner configuration must be explicitly provided. Publishing `app-debug.apk` without running a hardware test is not proof of screen-sharing support.
+本地命令要求已有 JDK17、Gradle8.9 分发包、SDK 和依赖缓存；任一缺失就报告阻塞，不自动联网安装。CI 使用既有 runner 环境。The instrumentation task requires an available emulator/device. Publishing `app-debug.apk` without running a hardware test is not proof of screen-sharing support.
 
 ## 6. PR verification template
 

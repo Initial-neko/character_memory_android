@@ -1,6 +1,6 @@
 # Android V1 运行架构
 
-Status: **design / no Android implementation yet**. This document is a consumer design, not evidence of implemented Android functionality.
+Status: **P1 offline demo and P2 API client source implemented; execution evidence is commit-specific**. Native capture/voice/device authentication sections below remain future design. Read [P2_SETUP.md](P2_SETUP.md) for current connection and acceptance boundaries.
 
 - API fact source: [Core-owned Mobile API Contract](https://github.com/Initial-neko/character_memory/blob/main/docs/current/MOBILE_API_CONTRACT.md)
 - PC mobile deployment: [Core Mobile Access](https://github.com/Initial-neko/character_memory/blob/main/docs/current/MOBILE_ACCESS.md)
@@ -26,7 +26,9 @@ One authoritative Character Core; Android does not run PersonRuntime/Memory, acc
 | Android permission and foreground service lifecycle | Validation, quotas, media storage |
 | User-visible connect and capture controls | Durable source of truth |
 
-## 2. Android project structure — proposed
+## 2. Android project structure
+
+Current source uses one app module: `data/` holds HTTPS configuration, Core transport and durable message projection; `live/` holds API-backed UI/business state; `Prototype*.kt` and `screens/` retain the explicitly launched P1 offline demo. Settings and per-server direct IDs use local SharedPreferences. `MainActivity` selects P1 only for `p1_mock=true`; normal launch selects P2. Background/target changes close streams and invalidate stale responses. The structure below is a future-stage expansion, not a list of existing modules.
 
 Initially **one Gradle app module, feature-based packages**. Split into separate Gradle modules only when a real build/ownership need appears.
 

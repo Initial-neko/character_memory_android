@@ -1,6 +1,9 @@
 package com.charactermemory.android
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -23,6 +26,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -32,8 +36,11 @@ import androidx.compose.ui.unit.sp
 @Composable
 internal fun GroupChatScreen(state: PrototypeUiState, model: PrototypeViewModel) {
     var draft by rememberSaveable(state.selectedGroupName) { mutableStateOf("") }
-    Column(Modifier.fillMaxSize().testTag("screen-group-chat").padding(horizontal = 14.dp)) {
-        DemoBanner("现有群聊：${state.selectedGroupName} · 本地 Mock 消息，不会联系真实人物")
+    val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    Column(Modifier.fillMaxSize().imePadding().testTag("screen-group-chat").padding(horizontal = 14.dp)) {
+        if (!imeVisible) {
+            DemoBanner("现有群聊：${state.selectedGroupName} · 本地 Mock 消息，不会联系真实人物")
+        }
         LazyColumn(
             modifier = Modifier.weight(1f).fillMaxWidth(),
             contentPadding = PaddingValues(vertical = 16.dp),

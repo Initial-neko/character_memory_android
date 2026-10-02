@@ -1,6 +1,6 @@
 # Character Memory Android
 
-> Character Memory 的 **Android 移动体验端 + 手机传感器端**。这是一个独立客户端，而不是第二套 PersonRuntime。当前 `main` 是设计与验收基线；[P1 Draft PR #7](https://github.com/Initial-neko/character_memory_android/pull/7) 已开始开发 Kotlin/Compose 的**离线 Mock 原型**，仅在 CI 实际成功后才可宣称可构建和模拟器通过。P2 以后的 Core/媒体功能均未实现。
+> Character Memory 的 **Android 移动体验端 + 手机传感器端**，人物与记忆仍由 PC Core 维护。P2 客户端包含配置、私聊/群聊、人物/群组草稿、Space 和图片草稿；普通启动进入真实 API 模式，首次使用先填写服务器。P1 离线 Mock 保留为显式测试/演示入口。当前提交的构建和模拟器结果以对应 CI 为准，**真实 Core 与真机验收另行记录，不能由 Mock 结果推定通过**。
 
 **PC Core 仓库：** [Initial-neko/character_memory](https://github.com/Initial-neko/character_memory)  
 **权威 API 契约：** [Core — MOBILE_API_CONTRACT.md](https://github.com/Initial-neko/character_memory/blob/main/docs/current/MOBILE_API_CONTRACT.md) · [19 条已核对路由的机器可读清单](https://github.com/Initial-neko/character_memory/blob/main/docs/contracts/android-v1-route-inventory.json)  
@@ -12,6 +12,8 @@
 
 [单独查看六屏示意图](docs/assets/android-v1-six-screens.svg) · [架构图](docs/assets/android-v1-architecture.svg)
 
+> 设计 SVG 仅展示**六个核心产品界面**；P1 实际另有一个**精简设置页**及群聊/生图弹窗等派生界面，均有独立的模拟器截图。设置页不是 SVG 第七张图，不能宣称六屏示意图覆盖所有 P1 页面。
+
 > 仓库内的 SVG 为可版本化的功能结构示意，不等同于产品评审时生成的高保真 PNG；两张 PNG 原图待按 [设计资产 Issue #6](https://github.com/Initial-neko/character_memory_android/issues/6) 补录。后续开发要以经确认的高保真原图及实际屏幕截图共同验收。
 
 V1 只包括与日常手机体验直接相关的功能：
@@ -21,7 +23,7 @@ V1 只包括与日常手机体验直接相关的功能：
 | 聊天主页 | 角色和群聊列表、消息预览、未读、进入会话 | 已有角色/群聊/摘要 API；跨端 read state 待统一 |
 | 单人 / 群聊 | 文本、图片、表情、异步实时回复 | 已有 202 + SSE + history API；Android 实现客户端状态 |
 | 一键生成人物 | 自然语言描述 → AI 草稿 → 预览确认 | 已有 draft/create API |
-| 一键生成群聊 | 自然语言 → 成员预览/重试 → 确认群聊 | 已有 ensemble prepare/research/retry/confirm API |
+| 一键生成群聊 | prepare、恢复草稿、成员重试、预览和明确确认 | 使用 Core 已有 ensemble 生命周期 API |
 | 语音聊天 | 麦克风、ASR、TTS、实时字幕、结束 | 已有 Media ASR/TTS + Core SSE；Android 原生音频 |
 | 视频 / 屏幕视觉 | 摄像头前后切换、屏幕共享授权、抽关键帧供 LLM 理解 | 已有 Visual API；Android CameraX + MediaProjection |
 | Space | 分页浏览、评论/回复、媒体播放 | 已有 Space API |
@@ -56,11 +58,12 @@ Character Memory Core (the ONE authoritative PersonRuntime)
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) — 运行边界、REST/SSE、设备与多模态职责。
 - [DELIVERY_PLAN.md](docs/DELIVERY_PLAN.md) — P0~P5 分阶段实施、各阶段验收门槛。
 - [TESTING.md](docs/TESTING.md) — AI 可执行的单测、模拟器、截图、Core 联调、真机验收矩阵。
+- [P2_SETUP.md](docs/P2_SETUP.md) — 真实模式连接配置、会话边界、用户后端验收与 fixture 来源。
 - [Core API Contract](https://github.com/Initial-neko/character_memory/blob/main/docs/current/MOBILE_API_CONTRACT.md) — **接口唯一事实源**，按 CURRENT/PROPOSED 标记现状。
 
-## 推荐 Android 工程栈（待 Bootstrap PR 实现）
+## 当前 Android 工程栈
 
-Kotlin + Jetpack Compose；ViewModel + StateFlow；OkHttp/Retrofit；Coroutines；DataStore + Android Keystore；CameraX；AudioRecord 与平台音频播放；MediaProjection 与合规 Foreground Service；JUnit/MockWebServer、Compose UI Test、Android Emulator/ADB。
+单 app module：Kotlin + Jetpack Compose、ViewModel + StateFlow、Coroutines、OkHttp/SSE、Gson、Coil 与本地 SharedPreferences；JUnit/MockWebServer、Compose UI Test、Android Emulator/ADB。CameraX、原生音频、MediaProjection 和设备凭证属于后续阶段。
 
 先采用 **单 Gradle app module + feature package**，避免为了目录漂亮过早拆多个 Gradle modules。后端不能依赖 Android 私有实现，客户端不能直接操作 PC SQLite。
 
@@ -81,11 +84,9 @@ Kotlin + Jetpack Compose；ViewModel + StateFlow；OkHttp/Retrofit；Coroutines�
 
 ## 如何开始（当前状态）
 
-**P1 开发分支已包含 Gradle 配置、Compose 界面与测试源码；APK 是否可构建以 GitHub Actions 报告为准。** 本地需安装 Android SDK、JDK 17 和 Gradle 8.9（目前尚未提交标准 Wrapper JAR）。运行：`gradle --no-daemon lintDebug testDebugUnitTest assembleDebug`。当前不申请录音、摄像头、录屏权限，所有页面标记 MOCK。详细门槛见 [P1_ACCEPTANCE.md](docs/P1_ACCEPTANCE.md)，**新手模拟器操作说明**见 [LOCAL_ANDROID_SETUP.md](docs/LOCAL_ANDROID_SETUP.md)。下一批开发应：
+仓库固定 **Gradle 8.9 Wrapper、JDK 17、compileSdk 35**。缓存完整时可运行 `./gradlew --offline --no-daemon lintDebug testDebugUnitTest assembleDebug`，Windows 使用 `gradlew.bat`。遇到分发包、SDK 或依赖缺失即报告阻塞；不要擅自下载、升级或复用不兼容的全局 Gradle。CI 使用现有配置生成 APK、JUnit、截图、logcat 和 JSON 证据。Windows 环境说明见 [LOCAL_ANDROID_SETUP.md](docs/LOCAL_ANDROID_SETUP.md)。
 
-1. 在 Core 实际实现或决定 canonical Direct 会话 ID 和移动设备权限方案，并添加契约测试。
-2. 在此仓库建立 Gradle/Compose 工程和 MockWebServer fixtures。
-3. 先完成真实 PC Core 的文字聊天闭环，再推进创建人物/建群/Space，最后逐项做语音和视觉真机验收。
+安装后按 [P2_SETUP.md](docs/P2_SETUP.md) 配置真实 Core/Media；Android 现在请求网络权限，但没有录音、摄像头或录屏能力。P1 原型基线见 [P1_ACCEPTANCE.md](docs/P1_ACCEPTANCE.md)。Core #213 的 canonical Direct ID、跨端 read state 和设备凭证迁移不属于 P2；当前客户端不会自动同步 Web 会话，也不会声称完成设备认证。原始高保真 PNG 仍由 Issue #6 跟踪。
 
 所有后端 API 变更必须先或同步进入 Core 仓库契约，更新客户端 fixtures 和兼容性说明。不要在 Android 仓库维护一份会漂移的私有 API 定义。
 
