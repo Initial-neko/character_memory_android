@@ -23,7 +23,8 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 import zlib
 import xml.etree.ElementTree as ET
 
-ROOT = Path(__file__).resolve().parents[1]
+TOOL_ROOT = Path(__file__).resolve().parents[1]
+ROOT = TOOL_ROOT
 STATUS = ("PASS", "FAIL", "BLOCKED", "NOT_RUN", "NOT_IMPLEMENTED", "TEST_DEFECT")
 SCREEN_NAMES = (
     "p1-01-chat-list.png", "p1-02-direct-chat.png",
@@ -245,8 +246,8 @@ def choose_checkout(path):
 
 def output_dir(arg):
     path = Path(arg).expanduser().resolve()
-    if path == ROOT or ROOT in path.parents:
-        raise ValueError("Evidence output must be OUTSIDE the repository checkout")
+    if path == ROOT or ROOT in path.parents or path == TOOL_ROOT or TOOL_ROOT in path.parents:
+        raise ValueError("Evidence output must be OUTSIDE the target and tool checkouts")
     return path
 
 

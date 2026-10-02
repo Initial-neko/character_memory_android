@@ -181,6 +181,12 @@ class PathAndSafetyTest(unittest.TestCase):
             with mock.patch.object(a, "ROOT", target):
                 self.assertRaises(ValueError, a.output_dir, str(target / "artifacts"))
 
+    def test_tool_checkout_output_is_rejected_even_when_target_is_external(self):
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch.object(a, "ROOT", Path(d)):
+                self.assertRaises(ValueError, a.output_dir,
+                                  str(a.TOOL_ROOT / "acceptance-runs"))
+
 
     def test_disallow_nonloopback_or_credentials(self):
         bad = (
