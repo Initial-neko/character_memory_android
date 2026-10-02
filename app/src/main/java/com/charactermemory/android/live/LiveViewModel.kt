@@ -23,7 +23,8 @@ class LiveViewModel(
     initialConfig: ServerConfig? = null,
     preferencesName: String = "live-core-v1"
 ) : ViewModel() {
-    private val preferences = context.applicationContext.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+    private val appContext = context.applicationContext
+    private val preferences = appContext.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
     private val savedConfig = runCatching {
         ServerConfig.normalize(preferences.getString("core", ServerConfig.DEFAULT_CORE) ?: ServerConfig.DEFAULT_CORE,
             preferences.getString("media", "") ?: "")
@@ -118,7 +119,7 @@ class LiveViewModel(
         val config = try { ServerConfig.normalize(core, media) } catch (error: Exception) {
             update { it.copy(error = error.message ?: "服务器地址无效") }; return
         }
-        ScreenShareService.stop(context)
+        ScreenShareService.stop(appContext)
         cancelSession()
         preferences.edit().putString("core", config.coreUrl).putString("media", config.mediaUrl).apply()
         api = apiFactory(config)
@@ -127,7 +128,7 @@ class LiveViewModel(
         refresh(); checkHealth()
     }
     fun resetConfig() {
-        ScreenShareService.stop(context)
+        ScreenShareService.stop(appContext)
         cancelSession(); preferences.edit().remove("core").remove("media").apply()
         val config = ServerConfig("", "")
         api = apiFactory(config); lastEventId = null
@@ -191,7 +192,7 @@ class LiveViewModel(
     }
     private fun select(target: ChatTarget) {
         val capture = ScreenShareStatus.state.value
-        if (capture.active && (capture.characterId != target.id || capture.conversationId != target.conversationId || target.group)) ScreenShareService.stop(context)
+        if (capture.active && (capture.characterId != target.id || capture.conversationId != target.conversationId || target.group)) ScreenShareService.stop(appContext)
         cancelSession()
         lastEventId = null; reconnectAttempt = 0; historyPaged = false
         update { it.copy(page = LivePage.CHAT, target = target, messages = emptyList(), composeText = "",
@@ -210,7 +211,7 @@ class LiveViewModel(
     fun show(page: LivePage) {
         val old = mutable.value.page
         if (old == page) return
-        if (page !in setOf(LivePage.CHAT, LivePage.IMAGE, LivePage.DETAILS)) ScreenShareService.stop(context)
+        if (page !in setOf(LivePage.CHAT, LivePage.IMAGE, LivePage.DETAILS)) ScreenShareService.stop(appContext)
         val chatPages = setOf(LivePage.CHAT, LivePage.IMAGE, LivePage.DETAILS)
         if (old in chatPages && page !in chatPages) cancelSession()
         // Prevent late draft writes from repopulating a feature after navigation.

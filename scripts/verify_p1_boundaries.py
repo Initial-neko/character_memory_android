@@ -21,8 +21,26 @@ permissions = [
     if child.tag in {"uses-permission", "uses-permission-sdk-23"}
 ]
 forbidden = ("RECORD_AUDIO", "CAMERA", "FOREGROUND_SERVICE", "MEDIA_PROJECTION", "POST_NOTIFICATIONS")
-violations = [permission for permission in permissions if any(token in permission for token in forbidden)]
 app = root.find("application")
+# The installed APK manifest is shared by the P1 Mock and the P4 native capture.
+# Only the narrowly scoped native projection service may add FGS permissions.
+screen_source = ROOT / "app/src/main/java/com/charactermemory/android/screen/ScreenShareService.kt"
+projection_service = None if app is None else next((
+    service for service in app.findall("service")
+    if service.attrib.get(ns + "name") == ".screen.ScreenShareService"
+    and service.attrib.get(ns + "exported") == "false"
+    and service.attrib.get(ns + "foregroundServiceType") == "mediaProjection"
+), None)
+projection_permissions = {
+    "android.permission.FOREGROUND_SERVICE",
+    "android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION",
+}
+projection_valid = bool(screen_source.exists() and projection_service is not None)
+violations = [
+    permission for permission in permissions
+    if any(token in permission for token in forbidden)
+    and not (projection_valid and permission in projection_permissions)
+]
 if app is None:
     violations.append("missing application")
 elif app.attrib.get(ns + "usesCleartextTraffic") != "false":
@@ -46,7 +64,11 @@ network_pattern = re.compile(
     r"\b(?:CoreApi|LiveViewModel|HttpURLConnection|Socket)\s*\(|\bURL\s*\(", re.MULTILINE
 )
 for source in mock_sources:
-    if network_pattern.search(source.read_text(encoding="utf-8")):
+    body = source.read_text(encoding="utf-8")
+    if network_pattern.search(body) or any(marker in body for marker in (
+        "com.charactermemory.android.screen", "android.media.projection",
+        "MediaProjectionManager(", "ImageReader("
+    )):
         mock_network_errors.append(str(source.relative_to(ROOT)))
 if not mock_sources:
     violations.append("missing P1 Mock sources")
@@ -75,7 +97,7 @@ result = {
     "mock_sources_checked": [str(path.relative_to(ROOT)) for path in mock_sources],
     "mock_network_violations": mock_network_errors,
     "explicit_mock_entry": explicit_mock_entry,
-    "note": "P2 may request INTERNET. P1 Mock sources stay offline; capture permissions remain prohibited. Source invariant only; built APK manifest still requires verification."
+    "note": "P1 Mock stays offline/capture-free. Shared manifest may request only mediaProjection FGS permissions with an unexported native service. Built manifest and device acceptance remain separate."
 }
 out = ROOT / "artifacts/p1-boundary-evidence.json"
 out.parent.mkdir(parents=True, exist_ok=True)

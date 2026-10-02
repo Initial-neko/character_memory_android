@@ -47,6 +47,31 @@ class BoundaryTest(unittest.TestCase):
         self.write_manifest("CAMERA")
         self.assertEqual(1, self.run_check()[0])
 
+    def test_unscoped_projection_permission_prohibited(self):
+        self.write_manifest("FOREGROUND_SERVICE_MEDIA_PROJECTION")
+        self.assertEqual(1, self.run_check()[0])
+
+    def test_scoped_native_projection_permissions_allowed(self):
+        screen = self.package / "screen"
+        screen.mkdir()
+        (screen / "ScreenShareService.kt").write_text("class ScreenShareService", encoding="utf-8")
+        self.manifest.write_text(
+            '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+            '<uses-permission android:name="android.permission.INTERNET"/>'
+            '<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>'
+            '<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>'
+            '<application android:usesCleartextTraffic="false">'
+            '<service android:name=".screen.ScreenShareService" android:exported="false"'
+            ' android:foregroundServiceType="mediaProjection"/>'
+            '</application></manifest>', encoding="utf-8")
+        code, evidence = self.run_check()
+        self.assertEqual(0, code, evidence)
+
+    def test_mock_must_not_import_capture(self):
+        (self.package / "screens/MockScreen.kt").write_text(
+            "import com.charactermemory.android.screen.ScreenShareService\\n" + self.tags, encoding="utf-8")
+        self.assertEqual(1, self.run_check()[0])
+
     def test_network_import_in_mock_prohibited(self):
         (self.package / "PrototypeModels.kt").write_text("import okhttp3.OkHttpClient", encoding="utf-8")
         code, evidence = self.run_check()
