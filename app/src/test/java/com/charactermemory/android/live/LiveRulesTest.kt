@@ -63,13 +63,13 @@ class LiveRulesTest {
         assertEquals("new", rows.first().text("turn_id"))
     }
     @Test fun confirmedCommentsRetainCanonicalTimeThenIdOrderAndServerEnrichment() {
-        val confirmed = jsonObject("id" to 9, "created_at_epoch" to 2.2, "content" to "old")
+        val confirmed = jsonObject("id" to 9, "created_at" to "2026-10-02T10:00:00.200+08:00", "content" to "old")
         val fresh = jsonObject("id" to 1, "comments" to listOf(
-            jsonObject("id" to 1, "created_at_epoch" to 2.1),
-            jsonObject("id" to 9, "created_at_epoch" to 2.2, "content" to "enriched"),
-            jsonObject("id" to 10, "created_at_epoch" to 2.2)))
+            jsonObject("id" to 12, "created_at" to "2026-10-02T02:00:00.100Z"),
+            jsonObject("id" to 9, "created_at" to "2026-10-02T02:00:00.200Z", "content" to "enriched"),
+            jsonObject("id" to 10, "created_at" to "2026-10-02T10:00:00.200+08:00")))
         val rows = LiveRules.preserveConfirmedComments(fresh, listOf(confirmed)).items("comments")
-        assertEquals(listOf("1", "9", "10"), rows.map { it.text("id") })
+        assertEquals(listOf("12", "9", "10"), rows.map { it.text("id") })
         assertEquals("enriched", rows[1].text("content"))
     }
 }

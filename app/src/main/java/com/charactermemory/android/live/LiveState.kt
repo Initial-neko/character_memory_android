@@ -6,6 +6,7 @@ import com.charactermemory.android.data.items
 import com.charactermemory.android.data.text
 import com.google.gson.JsonObject
 import java.security.MessageDigest
+import java.time.OffsetDateTime
 
 enum class LivePage { HOME, CHAT, SETTINGS, CHARACTER, ENSEMBLE, SPACE, IMAGE, DETAILS }
 data class ChatTarget(val id: String, val name: String, val group: Boolean, val conversationId: String,
@@ -68,7 +69,7 @@ object LiveRules {
         text == receipt.draftText && replyTo == receipt.replyTo
     fun preserveConfirmedComments(post: JsonObject, confirmed: List<JsonObject>): JsonObject = post.deepCopy().apply {
         val merged = mergeRecords(confirmed, post.items("comments")).sortedWith(
-            compareBy<JsonObject> { it.text("created_at_epoch").toDoubleOrNull() ?: 0.0 }
+            compareBy<JsonObject> { runCatching { OffsetDateTime.parse(it.text("created_at")).toInstant() }.getOrNull() }
                 .thenBy { it.text("id").toLongOrNull() ?: Long.MAX_VALUE }
         )
         add("comments", com.google.gson.JsonArray().apply { merged.forEach { add(it) } })
