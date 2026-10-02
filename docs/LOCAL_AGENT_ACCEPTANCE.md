@@ -25,12 +25,13 @@
 | 模拟器 | Pixel_9 API 35 | 唯一在线 AVD，不允许同时连真机 |
 | Build Tools | 34.0.0 / 36.0.0 | 是否可满足本项目构建，需实测 |
 
-在 Git Bash 中使用独立 Worktree。优先验收 PR #9 的提交；若 #9 已合并则选其变更所在 main 的 SHA。
+在 Git Bash 中使用两个独立 Worktree：**验收工具代码**与**被测 Android 代码**可以处于不同 PR 分支。这一点尤其重要，因为验收工具 PR 与尚未合并的 #9 并行开发；不能假设 #9 里已经有验收脚本。
 
 ~~~bash
 git fetch origin
 git worktree add --detach ../character_memory_android_acceptance origin/fix/p1-issue8-evidence-and-layout
-cd ../character_memory_android_acceptance
+git worktree add --detach ../character_memory_android_tools origin/test/local-agent-acceptance-gates
+cd ../character_memory_android_tools
 
 export JAVA_HOME="/c/Users/cute/.jdks/liberica-17.0.20.1"
 export ANDROID_HOME="/c/Users/cute/AppData/Local/Android/Sdk"
@@ -53,14 +54,17 @@ git status --short
 本工具输出**必须位于被测 Git 工作区外面**。如果 Git Bash 的 Python 命令叫 `python` 而不是 `python3`，相应替换即可。
 
 ~~~bash
-export ANDROID_SHA="$(git rev-parse HEAD)"
+export ANDROID_TARGET="../character_memory_android_acceptance"
+export ANDROID_SHA="$(git -C "$ANDROID_TARGET" rev-parse HEAD)"
 export ACCEPTANCE_DIR="../acceptance-runs/p1-$ANDROID_SHA"
 
 python3 scripts/local_acceptance.py env \
+  --checkout "$ANDROID_TARGET" \
   --expected-sha "$ANDROID_SHA" \
   --output "$ACCEPTANCE_DIR/g0"
 
 python3 scripts/local_acceptance.py p1 \
+  --checkout "$ANDROID_TARGET" \
   --expected-sha "$ANDROID_SHA" \
   --output "$ACCEPTANCE_DIR/g1"
 ~~~
@@ -79,6 +83,7 @@ G1 使用当前仓库 Wrapper 执行带 `--rerun-tasks` 的 Lint、JUnit、Debug
 
 ~~~bash
 python3 scripts/local_acceptance.py core-readonly \
+  --checkout "$ANDROID_TARGET" \
   --expected-sha "$ANDROID_SHA" \
   --output "$ACCEPTANCE_DIR/g2" \
   --core-url "http://127.0.0.1:8000" \
