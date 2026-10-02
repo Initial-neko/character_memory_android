@@ -104,6 +104,17 @@ class LiveApiUiTest {
         if (::preferenceName.isInitialized) compose.activity.getSharedPreferences(preferenceName, 0).edit().clear().commit()
     }
 
+    private fun dismissIme() {
+        // Espresso.closeSoftKeyboard() can wait for an Activity root that has no focus
+        // while the IME owns the focused window. Request hiding directly from Android.
+        compose.runOnUiThread {
+            val service = compose.activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                as android.view.inputmethod.InputMethodManager
+            service.hideSoftInputFromWindow(compose.activity.window.decorView.windowToken, 0)
+        }
+        compose.waitForIdle()
+    }
+
     private fun waitTag(tag: String) {
         compose.waitUntil(10_000) { compose.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty() }
     }
@@ -183,7 +194,7 @@ class LiveApiUiTest {
             assertEquals("rin", dispatcher.writes.first().second.text("character_id"))
             assertTrue(dispatcher.writes.first().second.text("conversation_id").isNotBlank())
         } finally {
-            androidx.test.espresso.Espresso.closeSoftKeyboard()
+            dismissIme()
             if (original == "0" || original == "1") device.executeShellCommand("settings put secure show_ime_with_hard_keyboard $original")
             else device.executeShellCommand("settings delete secure show_ime_with_hard_keyboard")
         }
