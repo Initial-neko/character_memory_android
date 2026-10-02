@@ -75,6 +75,31 @@ class CoreApiTest {
         } }
     }
 
+    @Test fun ttsReadsBoundedBinaryFromMediaWithoutAccidentalCoreCall() = runBlocking {
+        MockWebServer().use { core -> MockWebServer().use { media ->
+            core.start(); media.start()
+            val api = CoreApi(ServerConfig(core.url("/").toString(), media.url("/").toString()))
+            val wave = com.charactermemory.android.media.WavPcm16.encode(ByteArray(3200))
+            media.enqueue(MockResponse().setHeader("Content-Type", "audio/wav")
+                .setBody(okio.Buffer().write(wave)))
+            val result = api.synthesizeSpeech("你好", "rin")
+            assertEquals("audio/wav", result.mimeType)
+            assertArrayEquals(wave, result.bytes)
+            val request = media.takeRequest()
+            assertEquals("/v1/tts", request.path)
+            assertEquals("POST", request.method)
+            assertEquals("rin", JsonParser.parseString(request.body.readUtf8()).asJsonObject.text("voice"))
+            assertEquals(0, core.requestCount)
+            media.enqueue(MockResponse().setResponseCode(503).setHeader("Retry-After", "0")
+                .setBody("""{"detail":"provider unavailable"}"""))
+            media.enqueue(MockResponse().setHeader("Content-Type", "audio/wav")
+                .setBody(okio.Buffer().write(wave)))
+            try { api.synthesizeSpeech("勿重试"); fail("TTS 503 must not repeat paid inference") }
+            catch (error: ApiFailure) { assertEquals(503, error.status) }
+            assertEquals(2, media.requestCount)
+        } }
+    }
+
     @Test fun errorsPreserveStringAndStructuredDetailsWithoutInvalidSuccessFallback() = runBlocking {
         MockWebServer().use { server ->
             server.start()
