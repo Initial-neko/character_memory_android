@@ -7,7 +7,7 @@
 - Kotlin Compose, six product screens + compact Settings; no real Core/Media connectivity.
 - Deterministic Mock roster, messages, ensemble members, Space entries.
 - Interactive: home navigation, text draft/send into **local-only** memory, person/group preview, call demo toggles, local like, preference toggles.
-- Explicit MOCK label on every screen; NO internet, microphone, camera or MediaProjection permission in AndroidManifest.
+- Explicit MOCK label on every P1 screen; activity extra `p1_mock=true` selects the offline demo. Normal launch is P2 real mode. The shared APK requests INTERNET for P2; P1 models/screens contain no network client imports or calls. No microphone, camera, foreground capture service or MediaProjection permissions.
 - V2 virtual avatar excluded.
 
 ## One command (JDK 17 + Android SDK + repository-pinned Gradle 8.9 Wrapper)
@@ -29,16 +29,16 @@ P1 CI records `app-debug.apk`, XML test results, lint, screenshot files and JSON
 | Metric | Required | Evidence |
 |---|---:|---|
 | Debug compile | PASS | APK + build logs |
-| JVM tests | ≥10, 0 failures | JUnit XML |
-| UI tests | ≥3, 0 failures | instrumentation XML |
-| Actual emulator screenshots | ≥12 | original nine screens + compact call portrait + call landscape + chat IME |
+| P1 JVM tests | ≥13, 0 failures/errors/skips | PrototypeRulesTest + PrototypeViewModelTest JUnit XML |
+| P1 UI tests | ≥5, 0 failures/errors/skips | PrototypeUiTest instrumentation XML |
+| Actual P1 emulator screenshots | exactly 12 required filenames | original nine screens + compact call portrait + call landscape + chat IME |
 | Six-screen navigation | PASS | UI semantic tags, no coordinate-only taps |
 | Static lint | PASS | Android lint report |
 | Real MediaProjection | NOT RUN in P1 | not implemented |
 | Core API integration | NOT RUN in P1 | Mock-only |
 | Original PNG design asset | pending Issue #6 | must not be claimed uploaded |
 
-**Never** count `NOT RUN` as a pass. The evidence summarizer exits non-zero when test XML or required screenshots are missing.
+**Never** count `NOT RUN` as a pass. The summarizer excludes P2 tests/screenshots from P1 totals and exits non-zero on skipped tests, invalid/missing XML, missing/duplicate/unexpected P1 screenshot names, or duplicate test identities. Each original screenshot is hashed with SHA-256. The source boundary verifier allows P2 INTERNET but still checks offline P1 sources, explicit mock launch, screen tags and Compose delegate imports.
 
 ## Review checklist
 

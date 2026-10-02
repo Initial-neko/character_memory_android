@@ -1,4 +1,4 @@
-name: Android P1 prototype
+name: Android P1 regression / P2 client
 
 on:
   push:
@@ -30,7 +30,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           cache-read-only: ${{ github.event_name == 'pull_request' }}
-      - name: P1 boundary and screen-tag static assertions
+      - name: Evidence summarizer regression tests
+        run: python3 -m unittest discover -s scripts -p 'test_*.py' -v
+      - name: P1 offline boundary and screen-tag static assertions
         run: python3 scripts/verify_p1_boundaries.py
       - name: Verify official Gradle Wrapper checksum
         run: |
@@ -40,22 +42,46 @@ jobs:
       - name: Install API 35
         run: |
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
-      - name: Verify Gradle, Lint, JVM tests and Debug APK
-        run: ./gradlew --no-daemon lintDebug testDebugUnitTest assembleDebug --stacktrace
-      - name: Summarize test evidence
+      - name: Verify Lint, JVM execution 1 and Debug APK
+        run: ./gradlew --no-daemon lintDebug testDebugUnitTest assembleDebug --rerun-tasks --stacktrace
+      - name: Preserve JVM execution 1 evidence
         if: always()
-        run: python3 scripts/summarize_evidence.py --mode jvm --output artifacts/p1-jvm-evidence.json
+        run: |
+          mkdir -p artifacts/jvm-run-1
+          cp -R app/build/test-results/testDebugUnitTest artifacts/jvm-run-1/
+      - name: Summarize P1 JVM execution 1
+        if: always()
+        run: python3 scripts/summarize_evidence.py --mode jvm --output artifacts/jvm-run-1/p1-jvm-evidence.json
+      - name: Summarize P2 JVM execution 1
+        if: always()
+        run: python3 scripts/summarize_evidence.py --mode jvm --profile p2 --output artifacts/jvm-run-1/p2-jvm-evidence.json
+      - name: Independent JVM execution 2
+        if: always()
+        run: |
+          rm -rf app/build/test-results/testDebugUnitTest
+          ./gradlew --no-daemon testDebugUnitTest --rerun-tasks --stacktrace
+      - name: Preserve JVM execution 2 evidence
+        if: always()
+        run: |
+          mkdir -p artifacts/jvm-run-2
+          cp -R app/build/test-results/testDebugUnitTest artifacts/jvm-run-2/
+      - name: Summarize P1 JVM execution 2
+        if: always()
+        run: python3 scripts/summarize_evidence.py --mode jvm --output artifacts/jvm-run-2/p1-jvm-evidence.json
+      - name: Summarize P2 JVM execution 2
+        if: always()
+        run: python3 scripts/summarize_evidence.py --mode jvm --profile p2 --output artifacts/jvm-run-2/p2-jvm-evidence.json
       - name: Upload APK / JUnit / lint / evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: p1-build-unit-evidence
-          if-no-files-found: warn
+          if-no-files-found: error
           path: |
             app/build/outputs/apk/debug/
             app/build/test-results/
             app/build/reports/
-            artifacts/*.json
+            artifacts/
 
   emulator-ui:
     name: Emulator / UI flows / actual screenshots
@@ -92,18 +118,30 @@ jobs:
             ./gradlew --no-daemon connectedDebugAndroidTest --stacktrace
             result=$?
             mkdir -p artifacts/screenshots
-            adb pull /sdcard/Pictures/CharacterMemoryP1 artifacts/screenshots || true
-            adb logcat -d -t 3000 > artifacts/emulator-logcat.txt || true
+            adb pull /sdcard/Pictures/CharacterMemoryP1 artifacts/screenshots
+            p1_pull=$?
+            adb pull /sdcard/Pictures/CharacterMemoryP2 artifacts/screenshots
+            p2_pull=$?
+            adb logcat -d -t 3000 > artifacts/emulator-logcat.txt
+            logs=$?
+            if [ "$result" -eq 0 ]; then
+              if [ "$p1_pull" -ne 0 ] || [ "$p2_pull" -ne 0 ] || [ "$logs" -ne 0 ]; then
+                exit 1
+              fi
+            fi
             exit $result
-      - name: Summarize instrumented evidence
+      - name: Summarize P1 instrumented evidence
         if: always()
         run: python3 scripts/summarize_evidence.py --mode emulator --output artifacts/p1-emulator-evidence.json
+      - name: Summarize P2 instrumented evidence
+        if: always()
+        run: python3 scripts/summarize_evidence.py --mode emulator --profile p2 --output artifacts/p2-emulator-evidence.json
       - name: Upload screenshots / reports / logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: p1-emulator-ui-evidence
-          if-no-files-found: warn
+          if-no-files-found: error
           path: |
             artifacts/
             app/build/outputs/androidTest-results/

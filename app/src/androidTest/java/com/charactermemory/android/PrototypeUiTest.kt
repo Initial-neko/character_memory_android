@@ -1,6 +1,7 @@
 package com.charactermemory.android
 
 import android.content.ContentValues
+import android.content.Intent
 import android.graphics.Bitmap
 import android.os.Build
 import android.os.SystemClock
@@ -12,7 +13,9 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.performScrollToNode
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.AndroidComposeTestRule
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
@@ -33,7 +36,17 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class PrototypeUiTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    @get:Rule val compose = AndroidComposeTestRule(
+        activityRule = ActivityScenarioRule<MainActivity>(
+            Intent(ApplicationProvider.getApplicationContext(), MainActivity::class.java)
+                .putExtra("p1_mock", true)
+        ),
+        activityProvider = { rule ->
+            var activity: MainActivity? = null
+            rule.scenario.onActivity { activity = it }
+            requireNotNull(activity)
+        }
+    )
 
     private fun screenshot(name: String, expectedTag: String) {
         // Asserting the Compose semantics tree is not sufficient to synchronize

@@ -1,6 +1,6 @@
 # P1：复用本机 Android 开发环境（Windows）
 
-> P1 [PR #7](https://github.com/Initial-neko/character_memory_android/pull/7) 已合并；此版为纯离线 Mock，无 PC Core/Tailscale、无录音/摄像头/录屏授权。最新验收须查看对应 commit 的 CI 产物，而不是仅凭 README 断言成功。
+> P1 [PR #7](https://github.com/Initial-neko/character_memory_android/pull/7) 已合并。当前 P2 普通启动是真实模式，连接配置见 [P2_SETUP.md](P2_SETUP.md)；`p1_mock=true` 是独立离线演示入口。尚无录音/摄像头/录屏授权。最新验收须查看对应 commit 的 CI 产物。
 
 ## 已有环境（用户提供，非本次 CI 实测）
 
@@ -12,7 +12,7 @@
 | AVD | Pixel_9，API 35，x86_64 | 可直接用于 P1 视觉验证 |
 | Build Tools | 已安装 34.0.0 / 36.0.0 | 本项目 CI 使用 35.0.0；本地离线构建需先核对插件实际选择的 Build Tools |
 
-**无需重装 JDK、SDK 和模拟器**。但本仓库当前尚**未实际验证** Gradle 9.3.0 + AGP 9.0.1 的组合；不要直接混用 app_guard 的 Wrapper。第一次运行本项目 Wrapper 8.9 可能需要下载对应的 Gradle 分发包及项目依赖；`--offline` 只在缓存完整时才会成功。若本机缺少 AGP 所需的 Build Tools 35.0.0，可能仍需补齐，不能因安装了 36.0.0 就宣称离线一定能编译。
+**复用现有 JDK、SDK 和模拟器**。不要混用 app_guard 的 Gradle9.3.0/AGP9.0.1 Wrapper。`--offline` 只在 Gradle8.9 分发包、项目依赖及 Build Tools 缓存完整时成功；缺失即停止并报告阻塞，不擅自联网、下载、升级或安装。已知本机缺 Gradle8.9，本次 Android 执行证据由既有 GitHub CI 产生。
 
 ## Git Bash（推荐，**只修改当前终端会话**）
 
@@ -24,7 +24,7 @@ export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:
 
 "$JAVA_HOME/bin/java" -version        # 必须显示 17.x
 ./gradlew --version                    # 本仓库应显示 Gradle 8.9
-./gradlew --no-daemon lintDebug testDebugUnitTest assembleDebug
+./gradlew --offline --no-daemon lintDebug testDebugUnitTest assembleDebug
 ```
 
 若你使用 Windows CMD，则使用仓库的 `gradlew.bat`，并通过 Android Studio 的 Gradle JDK 设置或当前终端显式配置 JDK 17；不要让默认 JDK 8 接管构建。此仓库已带 `gradlew`、`gradlew.bat`、`gradle/wrapper/gradle-wrapper.jar` 及其 checksum-pinned properties。
@@ -49,8 +49,8 @@ CI 已将截图保存到 `p1-emulator-ui-evidence`，路径 `/sdcard/Pictures/Ch
 3. 查看 `p1-emulator-ui-evidence` 中真实截图与 JUnit 结果。
 4. 安装 APK，明确区分 `MOCK` 页面与真实 API 连接；异常请附 Android 版本、机型、步骤、截图/日志。
 
-## P2 以后
+## P2 与后续阶段
 
-才会增加 `INTERNET` / SSE / 设备认证等真实网络接口，之后依阶段增加原生媒体权限。Backend API [由 Core 维护](https://github.com/Initial-neko/character_memory/blob/main/docs/current/MOBILE_API_CONTRACT.md)。
+P2 已增加 INTERNET / HTTPS / SSE；设备认证属于 Core 拟议能力，不能称为已实现。P3/P4 才增加原生媒体能力及权限。Backend API [由 Core 维护](https://github.com/Initial-neko/character_memory/blob/508c6f0/docs/current/MOBILE_API_CONTRACT.md)。
 
 **证据标签：PASS / FAIL / NOT RUN。** 不能把其它项目的离线构建成功直接记作这个仓库的本地验收通过。
