@@ -22,6 +22,12 @@ fun ScreenShareControls(state: LiveState, model: LiveViewModel) {
     val context = LocalContext.current
     val capture by ScreenShareStatus.state.collectAsState()
     val target = state.target ?: return
+    LaunchedEffect(capture.manualAccepted) {
+        if (capture.manualAccepted > 0 && capture.characterId == target.id &&
+            capture.conversationId == target.conversationId && model.state.value.page == LivePage.CHAT) {
+            model.loadHistory()
+        }
+    }
     var requested by remember { mutableStateOf<String?>(null) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val expected = requested
@@ -40,8 +46,12 @@ fun ScreenShareControls(state: LiveState, model: LiveViewModel) {
     val mine = capture.active && capture.characterId == target.id && capture.conversationId == target.conversationId
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (mine) {
+            TextButton(onClick = { ScreenShareService.askCurrentScreen(context) },
+                enabled = !capture.manualBusy, modifier = Modifier.testTag("live-screen-share-ask")) {
+                Text(if (capture.manualBusy) "正在读取…" else "询问当前画面")
+            }
             OutlinedButton(onClick = { ScreenShareService.stop(context) },
-                modifier = Modifier.testTag("live-screen-share-stop")) { Text("停止共享屏幕") }
+                modifier = Modifier.testTag("live-screen-share-stop")) { Text("停止共享") }
         } else {
             OutlinedButton(onClick = {
                 if (capture.active) {
@@ -59,6 +69,6 @@ fun ScreenShareControls(state: LiveState, model: LiveViewModel) {
         Text(capture.label, style = MaterialTheme.typography.bodySmall, color = LiveMuted,
             modifier = Modifier.testTag("live-screen-share-status"))
     }
-    if (mine) Text("仅向当前人物发送变化明显的屏幕关键帧；系统授权范围内的其他 App 可能被采集。可随时从此处或系统通知停止。",
+    if (mine) Text("可主动询问当前画面；自动观察仅上传显著变化的关键帧。系统授权范围内的其他 App 可能被采集，可从此处或系统通知停止。",
         style = MaterialTheme.typography.bodySmall, color = LiveMuted)
 }

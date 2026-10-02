@@ -31,7 +31,9 @@ data class ScreenShareSnapshot(
     val characterId: String = "",
     val conversationId: String = "",
     val label: String = "未共享",
-    val accepted: Int = 0
+    val accepted: Int = 0,
+    val manualAccepted: Int = 0,
+    val manualBusy: Boolean = false
 )
 
 object ScreenShareStatus {
@@ -46,6 +48,7 @@ class ScreenShareService : Service() {
     companion object {
         private const val ACTION_START = "com.charactermemory.android.screen.START"
         private const val ACTION_STOP = "com.charactermemory.android.screen.STOP"
+        private const val ACTION_ASK = "com.charactermemory.android.screen.ASK"
         private const val EXTRA_CONSENT = "screen_consent"
         private const val EXTRA_RESULT = "screen_result"
         private const val EXTRA_CORE = "screen_core"
@@ -72,6 +75,11 @@ class ScreenShareService : Service() {
             if (!ScreenShareStatus.state.value.active) return
             context.startService(Intent(context, ScreenShareService::class.java).apply { action = ACTION_STOP })
         }
+
+        fun askCurrentScreen(context: Context) {
+            if (!ScreenShareStatus.state.value.active) return
+            context.startService(Intent(context, ScreenShareService::class.java).apply { action = ACTION_ASK })
+        }
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -82,6 +90,9 @@ class ScreenShareService : Service() {
     private var display: VirtualDisplay? = null
     private var callback: MediaProjection.Callback? = null
     private var sampler: Job? = null
+    private var coreApi: CoreApi? = null
+    private var sessionCharacter = ""
+    private var sessionConversation = ""
     private var density: Int = 1
     @Volatile private var stopping = false
 
@@ -90,6 +101,27 @@ class ScreenShareService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             finish("已停止共享")
+            return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_ASK) {
+            val client = coreApi
+            if (!stopping && projection != null && client != null && !ScreenShareStatus.state.value.manualBusy) {
+                val character = sessionCharacter
+                val conversation = sessionConversation
+                ScreenShareStatus.state.value = ScreenShareStatus.state.value.copy(manualBusy = true, label = "正在读取当前屏幕…")
+                scope.launch {
+                    try {
+                        submitCurrentScreen(client, character, conversation)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        if (!stopping) ScreenShareStatus.state.value =
+                            ScreenShareStatus.state.value.copy(label = "手动发送屏幕失败：${error.message}")
+                    } finally {
+                        ScreenShareStatus.state.value = ScreenShareStatus.state.value.copy(manualBusy = false)
+                    }
+                }
+            }
             return START_NOT_STICKY
         }
         if (intent?.action != ACTION_START || projection != null || stopping) return START_NOT_STICKY
@@ -134,8 +166,11 @@ class ScreenShareService : Service() {
                 display = obtained.createVirtualDisplay("CharacterMemoryScreen", width, height, density,
                     DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, reader!!.surface, null, handler)
             }
+            coreApi = CoreApi(ServerConfig.normalize(core))
+            sessionCharacter = character
+            sessionConversation = conversation
             ScreenShareStatus.state.value = ScreenShareSnapshot(true, character, conversation, "共享中 · 等待画面变化")
-            sampler = scope.launch { sampleLoop(CoreApi(ServerConfig.normalize(core)), character, conversation) }
+            sampler = scope.launch { sampleLoop(requireNotNull(coreApi), character, conversation) }
             START_NOT_STICKY
         } catch (e: Exception) {
             finish("启动屏幕共享失败：${e.message ?: "系统拒绝"}")
@@ -164,7 +199,7 @@ class ScreenShareService : Service() {
         try {
             val config = api.get("/v1/visual/periodic/config")
             if (!config.flag("enabled") || config.text("scope") != "DIRECT_DISPLAY_ONLY") {
-                withContext(Dispatchers.Main) { finish("Core 未启用 Direct 屏幕自动观察") }
+                ScreenShareStatus.state.value = ScreenShareStatus.state.value.copy(label = "共享中 · 自动观察关闭，可手动询问")
                 return
             }
             val intervalSeconds = config.text("interval_seconds", "30").toDoubleOrNull() ?: 30.0
@@ -190,13 +225,9 @@ class ScreenShareService : Service() {
                         ScreenShareStatus.state.value = ScreenShareStatus.state.value.copy(label = "当前帧太大，已跳过")
                         continue
                     }
+                    currentCoroutineContext().ensureActive()
                     val response = api.post("/v1/visual/direct/observations",
-                        jsonObject("character_id" to character, "conversation_id" to conversation,
-                            "visual_frame" to jsonObject(
-                                "filename" to "android-display.jpg",
-                                "source" to "DISPLAY",
-                                "captured_at_ms" to System.currentTimeMillis(),
-                                "data_url" to "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP))))
+                        ScreenVisualPayload.observation(character, conversation, bytes))
                     failures = 0
                     if (response.flag("accepted")) {
                         baseline = pixels
@@ -226,6 +257,33 @@ class ScreenShareService : Service() {
         } catch (e: Exception) {
             withContext(Dispatchers.Main) { finish("无法获取屏幕观察配置：${e.message}") }
         }
+    }
+
+    private suspend fun submitCurrentScreen(api: CoreApi, character: String, conversation: String) {
+        repeat(12) {
+            delay(350)
+            val frame = readFrame() ?: return@repeat
+            val bitmap = frame.second
+            try {
+                val bytes = encode(bitmap)
+                require(bytes.size <= 2 * 1024 * 1024) { "当前画面超过单帧上限" }
+                currentCoroutineContext().ensureActive()
+                val response = api.post("/v1/visual/direct/messages",
+                    ScreenVisualPayload.directQuestion(character, conversation, bytes))
+                if (!response.flag("accepted")) error("Core 未返回视觉消息接收凭据")
+                val snapshot = ScreenShareStatus.state.value
+                if (!stopping && snapshot.characterId == character && snapshot.conversationId == conversation) {
+                    ScreenShareStatus.state.value = snapshot.copy(
+                        manualAccepted = snapshot.manualAccepted + 1,
+                        label = "当前屏幕已发送给人物，等待回复")
+                }
+            } finally {
+                bitmap.recycle()
+            }
+            return
+        }
+        if (!stopping) ScreenShareStatus.state.value = ScreenShareStatus.state.value.copy(
+            label = "暂无可用屏幕画面，请稍候重试")
     }
 
     private fun readFrame(): Pair<IntArray, Bitmap>? = synchronized(lock) {
@@ -290,6 +348,9 @@ class ScreenShareService : Service() {
         if (stopping) return
         stopping = true
         sampler?.cancel()
+        coreApi = null
+        sessionCharacter = ""
+        sessionConversation = ""
         synchronized(lock) {
             display?.release(); display = null
             reader?.close(); reader = null

@@ -20,3 +20,7 @@
 6. 分别记录 Android build SHA、Core SHA、机型/系统、logcat、实际接受事件以及关闭后的采集状态，填写 PASS/FAIL/NOT RUN。
 
 来源：Core `docs/current/MOBILE_API_CONTRACT.md` §6 与 `docs/current/VISUAL.md` §Periodic screen observation。Android 开发官方 MediaProjection 指引： https://developer.android.com/media/grow/media-projection
+
+## 手动询问当前画面
+
+共享期间可以点击「询问当前画面」；这条请求使用 Core 已存在的 `POST /v1/visual/direct/messages`，仅附带一张 DISPLAY 帧并生成普通的可见用户消息。自动观察是否启用不影响主动询问，二者使用不同的 Core 接口。Core 返回 202 后刷新历史；模型仍可以选择不回复。此通路仍需真机/真实 Core 联调，暂不宣称通过。
