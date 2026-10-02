@@ -290,4 +290,13 @@ class LiveApiUiTest {
         assertEquals(1, dispatcher.writes.count { it.first == "/v1/space/posts/1/comments" })
     }
 
+    @Test fun ttsActionReportsMediaOutageWithoutCreatingCoreMessage() {
+        tap("live-character-rin")
+        waitTag("live-message-speak-1")
+        tap("live-message-speak-1", true)
+        compose.waitUntil(10_000) { model.state.value.error?.contains("503") == true }
+        assertNull(model.state.value.speakingMessageId)
+        assertFalse(dispatcher.writes.any { it.first == "/v1/chat/messages" })
+    }
+
 }
