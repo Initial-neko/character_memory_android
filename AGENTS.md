@@ -18,6 +18,10 @@ Read [README.md](README.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs
 - Keep code, Core contract references, Android fixture definitions and affected docs synchronized. Do not add a second API document that diverges from the Core authoritative contract.
 - Do not create an APK release or merge stages on the basis of mock results alone; stage PR requires acceptance evidence specified in [TESTING.md](docs/TESTING.md).
 
+## Local acceptance tooling
+
+For G0/G1/G2 verification, read [docs/LOCAL_AGENT_ACCEPTANCE.md](docs/LOCAL_AGENT_ACCEPTANCE.md) and use `scripts/local_acceptance.py`. Keep the tool Worktree separate from the immutable target Worktree with `--checkout`. The harness is read-only against Core, stores evidence outside Git and distinguishes stale tests/screenshots from real passes. Its own Python unit tests are **not** evidence that Android hardware or Core E2E integration passed.
+
 ## Recommended workflow
 1. Read current stage issue and relevant Core contract revision.
 2. Propose a minimal vertical slice; implement + fixtures + unit tests.
