@@ -20,7 +20,7 @@ permissions = [
     for child in root
     if child.tag in {"uses-permission", "uses-permission-sdk-23"}
 ]
-forbidden = ("RECORD_AUDIO", "CAMERA", "FOREGROUND_SERVICE", "MEDIA_PROJECTION", "POST_NOTIFICATIONS")
+forbidden = ("CAMERA", "FOREGROUND_SERVICE", "MEDIA_PROJECTION", "POST_NOTIFICATIONS")
 violations = [permission for permission in permissions if any(token in permission for token in forbidden)]
 app = root.find("application")
 if app is None:
@@ -42,8 +42,8 @@ package = ROOT / "app/src/main/java/com/charactermemory/android"
 mock_sources = sorted((package / "screens").glob("*.kt")) + sorted(package.glob("Prototype*.kt"))
 network_pattern = re.compile(
     r"^import\s+(?:okhttp3|retrofit2|java\.net|javax\.net|android\.net|"
-    r"com\.charactermemory\.android\.(?:data|live))\b|"
-    r"\b(?:CoreApi|LiveViewModel|HttpURLConnection|Socket)\s*\(|\bURL\s*\(", re.MULTILINE
+    r"com\.charactermemory\.android\.(?:data|live|media))\b|"
+    r"\b(?:CoreApi|LiveViewModel|AudioRecord|HttpURLConnection|Socket)\s*\(|\bURL\s*\(", re.MULTILINE
 )
 for source in mock_sources:
     if network_pattern.search(source.read_text(encoding="utf-8")):
@@ -75,7 +75,7 @@ result = {
     "mock_sources_checked": [str(path.relative_to(ROOT)) for path in mock_sources],
     "mock_network_violations": mock_network_errors,
     "explicit_mock_entry": explicit_mock_entry,
-    "note": "P2 may request INTERNET. P1 Mock sources stay offline; capture permissions remain prohibited. Source invariant only; built APK manifest still requires verification."
+    "note": "P2/P3 shared APK may request INTERNET and RECORD_AUDIO. P1 Mock must remain offline and never import microphone implementation; camera/projection/foreground permissions stay prohibited. Built manifest and runtime permission acceptance remain separate."
 }
 out = ROOT / "artifacts/p1-boundary-evidence.json"
 out.parent.mkdir(parents=True, exist_ok=True)
