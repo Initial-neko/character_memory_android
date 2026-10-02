@@ -155,14 +155,18 @@ internal fun LiveChat(state: LiveState, model: LiveViewModel) {
                 }
             }
         }
+        // Keep optional tools outside the typing row: four controls on one line would
+        // otherwise collapse the editable field on 320dp phones and under the IME.
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick = { showStickers = !showStickers; if (showStickers) model.loadStickers() },
+                contentPadding = PaddingValues(horizontal = 5.dp, vertical = 4.dp),
+                modifier = Modifier.testTag("live-stickers-open")) { Text("☺ 表情") }
+            TextButton(onClick = { model.show(LivePage.IMAGE) },
+                contentPadding = PaddingValues(horizontal = 5.dp, vertical = 4.dp),
+                modifier = Modifier.testTag("live-image-open")) { Text("✦ 图片") }
+        }
         Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.Bottom) {
-            TextButton(onClick = { showStickers = !showStickers; if (showStickers) model.loadStickers() },
-                contentPadding = PaddingValues(horizontal = 5.dp, vertical = 9.dp),
-                modifier = Modifier.testTag("live-stickers-open")) { Text("☺") }
-            TextButton(onClick = { model.show(LivePage.IMAGE) },
-                contentPadding = PaddingValues(horizontal = 5.dp, vertical = 9.dp),
-                modifier = Modifier.testTag("live-image-open")) { Text("✦") }
             OutlinedTextField(state.composeText, model::editText, placeholder = { Text("输入消息…") }, maxLines = 4,
                 modifier = Modifier.weight(1f).testTag("live-chat-input"))
             TextButton(onClick = {
@@ -176,7 +180,6 @@ internal fun LiveChat(state: LiveState, model: LiveViewModel) {
                 Text(if (state.dictating) "停止" else "🎙")
             }
             Button(onClick = { model.send() }, enabled = "send" !in state.busy && state.composeText.isNotBlank() && !state.dictating,
-
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFF397CFF)),
                 modifier = Modifier.testTag("live-chat-send")) {
