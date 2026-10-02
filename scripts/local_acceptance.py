@@ -235,6 +235,14 @@ def write_report(output, report):
     return target
 
 
+def choose_checkout(path):
+    """Use a separate, explicit P1/PR #9 worktree without moving its HEAD."""
+    target = Path(path).expanduser().resolve()
+    if not (target / "settings.gradle.kts").is_file() or not (target / "app/build.gradle.kts").is_file():
+        raise ValueError("Target --checkout is not a usable Android project")
+    return target
+
+
 def output_dir(arg):
     path = Path(arg).expanduser().resolve()
     if path == ROOT or ROOT in path.parents:
@@ -267,8 +275,9 @@ def run_p1(output, expected_sha):
         jvm = parse_junit(ROOT / "app/build/test-results/testDebugUnitTest", 13, started)
         apk = ROOT / "app/build/outputs/apk/debug/app-debug.apk"
         steps["G1-build-and-unit"] = {
-            "status": "PASS" if rc == 0 and jvm["status"] == "PASS" and apk.is_file()
-            else "FAIL",
+            "status": ("FAIL" if rc != 0 else "TEST_DEFECT"
+                       if jvm["status"] in {"NOT_RUN", "TEST_DEFECT"} or not apk.is_file()
+                       else "FAIL" if jvm["status"] != "PASS" else "PASS"),
             "gradle_exit": rc, "jvm": jvm, "apk_present": apk.is_file(),
             "apk_sha256": hashlib.sha256(apk.read_bytes()).hexdigest()
             if rc == 0 and apk.is_file() else None,
@@ -292,8 +301,11 @@ def run_p1(output, expected_sha):
             actual = screenshots / "CharacterMemoryP1"
             screens = audit_screens(actual, expected_screens(), emu_start)
             steps["G1-emulator-and-screens"] = {
-                "status": "PASS" if rc == 0 and ui["status"] == "PASS"
-                          and screens["status"] == "PASS" and pull_exit == 0 else "FAIL",
+                "status": ("FAIL" if rc != 0 else "TEST_DEFECT" if pull_exit != 0
+                           or ui["status"] in {"NOT_RUN", "TEST_DEFECT"}
+                           or screens["status"] == "TEST_DEFECT"
+                           else "FAIL" if ui["status"] != "PASS"
+                           or screens["status"] != "PASS" else "PASS"),
                 "gradle_exit": rc, "screenshot_pull_exit": pull_exit, "ui": ui, "screens": screens,
                 "log": "logs/emulator.log",
                 "note": "ADB pull -a retains device mtime; old MediaStore screenshots cannot silently satisfy this run.",
@@ -390,8 +402,10 @@ def run_core(output, expected_sha, core, media):
 
 
 def main(argv=None):
+    global ROOT
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("stage", choices=["env", "p1", "core-readonly"])
+    parser.add_argument("--checkout", help="Android checkout to test, defaults to this tool checkout; never mutates HEAD")
     parser.add_argument("--output", required=True,
                         help="Existing/new directory outside this checkout. No auto-upload.")
     parser.add_argument("--expected-sha", help="Full Git commit hash or unique prefix")
@@ -399,6 +413,8 @@ def main(argv=None):
     parser.add_argument("--media-url", default="http://127.0.0.1:8001")
     args = parser.parse_args(argv)
     try:
+        if args.checkout:
+            ROOT = choose_checkout(args.checkout)
         dest = output_dir(args.output)
     except ValueError as exc:
         parser.error(str(exc))
