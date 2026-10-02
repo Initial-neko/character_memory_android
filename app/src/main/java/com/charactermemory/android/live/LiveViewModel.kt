@@ -14,6 +14,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import com.charactermemory.android.screen.ScreenShareService
+import com.charactermemory.android.screen.ScreenShareStatus
 
 class LiveViewModel(
     context: Context,
@@ -116,6 +118,7 @@ class LiveViewModel(
         val config = try { ServerConfig.normalize(core, media) } catch (error: Exception) {
             update { it.copy(error = error.message ?: "服务器地址无效") }; return
         }
+        ScreenShareService.stop(context)
         cancelSession()
         preferences.edit().putString("core", config.coreUrl).putString("media", config.mediaUrl).apply()
         api = apiFactory(config)
@@ -124,6 +127,7 @@ class LiveViewModel(
         refresh(); checkHealth()
     }
     fun resetConfig() {
+        ScreenShareService.stop(context)
         cancelSession(); preferences.edit().remove("core").remove("media").apply()
         val config = ServerConfig("", "")
         api = apiFactory(config); lastEventId = null
@@ -186,6 +190,8 @@ class LiveViewModel(
         select(ChatTarget(id, group.text("name", id), true, id, members))
     }
     private fun select(target: ChatTarget) {
+        val capture = ScreenShareStatus.state.value
+        if (capture.active && (capture.characterId != target.id || capture.conversationId != target.conversationId || target.group)) ScreenShareService.stop(context)
         cancelSession()
         lastEventId = null; reconnectAttempt = 0; historyPaged = false
         update { it.copy(page = LivePage.CHAT, target = target, messages = emptyList(), composeText = "",
@@ -204,6 +210,7 @@ class LiveViewModel(
     fun show(page: LivePage) {
         val old = mutable.value.page
         if (old == page) return
+        if (page !in setOf(LivePage.CHAT, LivePage.IMAGE, LivePage.DETAILS)) ScreenShareService.stop(context)
         val chatPages = setOf(LivePage.CHAT, LivePage.IMAGE, LivePage.DETAILS)
         if (old in chatPages && page !in chatPages) cancelSession()
         // Prevent late draft writes from repopulating a feature after navigation.

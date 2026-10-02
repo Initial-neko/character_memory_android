@@ -17,6 +17,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.charactermemory.android.screen.ScreenShareControls
 import com.charactermemory.android.data.*
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
@@ -108,6 +109,7 @@ internal fun LiveChat(state: LiveState, model: LiveViewModel) {
                 }
             }
         }
+        ScreenShareControls(state, model)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(onClick = { showStickers = !showStickers; if (showStickers) model.loadStickers() }, modifier = Modifier.testTag("live-stickers-open")) { Text("表情") }
             TextButton(onClick = { model.show(LivePage.IMAGE) }, modifier = Modifier.testTag("live-image-open")) { Text("生成图片") }
