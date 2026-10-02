@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.charactermemory.android.data.*
 import com.charactermemory.android.media.ShortWavRecorder
+import com.charactermemory.android.media.SpeechPlayback
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
@@ -28,6 +29,8 @@ class LiveViewModel(
     private val appContext = context.applicationContext
     private val preferences = appContext.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
     private var dictation: ShortWavRecorder? = null
+    private var speech: SpeechPlayback? = null
+    private var speechJob: Job? = null
     private val savedConfig = runCatching {
         ServerConfig.normalize(preferences.getString("core", ServerConfig.DEFAULT_CORE) ?: ServerConfig.DEFAULT_CORE,
             preferences.getString("media", "") ?: "")
@@ -108,6 +111,47 @@ class LiveViewModel(
     fun dictationPermissionDenied() = update {
         it.copy(error = "麦克风权限未授予，仍可输入文字聊天", dictationStatus = "")
     }
+
+    /** Explicitly requested TTS only; never speak replayed history or muted/silent turns. */
+    fun toggleSpeech(messageId: String, text: String, actorId: String? = null) {
+        if (mutable.value.speakingMessageId == messageId) { stopSpeech(); return }
+        stopSpeech()
+        val target = mutable.value.target ?: return
+        if (!active || mutable.value.page != LivePage.CHAT || text.isBlank()) return
+        val generation = fence.current
+        update { it.copy(speakingMessageId = messageId, speechStatus = "正在合成…", error = null) }
+        speechJob = CoroutineScope(viewModelScope.coroutineContext + session).launch {
+            try {
+                val clip = api.synthesizeSpeech(text.take(1_600), actorId?.takeIf { it.isNotBlank() })
+                currentCoroutineContext().ensureActive()
+                if (!fence.accepts(generation) || mutable.value.target != target ||
+                    mutable.value.speakingMessageId != messageId) return@launch
+                val player = SpeechPlayback(appContext)
+                speech = player
+                player.play(clip) {
+                    viewModelScope.launch {
+                        if (fence.accepts(generation) && mutable.value.speakingMessageId == messageId) stopSpeech()
+                    }
+                }
+                update { it.copy(speechStatus = "播放中…") }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (fence.accepts(generation) && mutable.value.speakingMessageId == messageId) {
+                    stopSpeech()
+                    update { it.copy(error = error.message ?: "朗读失败") }
+                }
+            } finally {
+                if (fence.accepts(generation)) speechJob = null
+            }
+        }
+    }
+
+    fun stopSpeech() {
+        speechJob?.cancel(); speechJob = null
+        speech?.close(); speech = null
+        update { it.copy(speakingMessageId = null, speechStatus = "") }
+    }
     fun editCharacterPrompt(value: String) = update { it.copy(characterPrompt = value.take(4000)) }
     fun editEnsemblePrompt(value: String) = update { it.copy(ensemblePrompt = value.take(2000)) }
     fun editImageInstruction(value: String) = update { it.copy(imageInstruction = value.take(1600)) }
@@ -117,6 +161,7 @@ class LiveViewModel(
 
     private fun cancelSession(reason: String? = null) {
         dictation?.close(); dictation = null
+        stopSpeech()
         fence.advance()
         stream?.close(); stream = null
         reconnect?.cancel(); reconnect = null
@@ -264,6 +309,7 @@ class LiveViewModel(
         // Image/detail overlays do not cancel the chat session; they must still stop the mic.
         if (old == LivePage.CHAT && page != LivePage.CHAT) {
             dictation?.close(); dictation = null
+            stopSpeech()
             update { it.copy(dictating = false, dictationStatus = "") }
         }
         val chatPages = setOf(LivePage.CHAT, LivePage.IMAGE, LivePage.DETAILS)
