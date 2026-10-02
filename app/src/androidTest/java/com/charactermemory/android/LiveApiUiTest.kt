@@ -164,6 +164,8 @@ class LiveApiUiTest {
             }
             val decor = compose.activity.window.decorView
             val keyboardTop = decor.height - imeBottom
+            compose.onNodeWithTag("live-chat-input").assertIsDisplayed()
+            compose.onNodeWithTag("live-chat-send").assertIsDisplayed()
             val bounds = compose.onNodeWithTag("live-chat-send").fetchSemanticsNode().boundsInWindow
             assertTrue("Live send button is covered by actual IME", bounds.bottom <= keyboardTop + 8f)
             val inputBounds = compose.onNodeWithTag("live-chat-input").fetchSemanticsNode().boundsInWindow

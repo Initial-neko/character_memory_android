@@ -73,7 +73,7 @@ fun LiveApp(model: LiveViewModel = viewModel(factory = LiveViewModel.factory(Loc
                     }
                 }
             }) { inner ->
-            Column(Modifier.fillMaxSize().padding(inner).imePadding()) {
+            Column(Modifier.fillMaxSize().padding(inner).consumeWindowInsets(inner).imePadding()) {
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.fillMaxWidth()
                     .testTag("live-error").padding(horizontal = 16.dp, vertical = 8.dp)) }
                 state.notice?.let { Text(it, color = LiveAccent, style = MaterialTheme.typography.bodySmall,
