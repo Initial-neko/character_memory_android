@@ -48,6 +48,23 @@ class PrototypeUiTest {
         }
     )
 
+    private fun assertPrototypeHeaderClearsSystemBars() {
+        val decor = compose.activity.window.decorView
+        val insets = requireNotNull(ViewCompat.getRootWindowInsets(decor)) {
+            "System insets unavailable for prototype header geometry"
+        }
+        val safeTop = insets.getInsets(
+            WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()
+        ).top
+        listOf("prototype-header-title", "prototype-header-mock").forEach { tag ->
+            val bounds = compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInWindow
+            assertTrue(
+                "$tag overlaps system status/cutout area: top=${bounds.top}, safeTop=$safeTop",
+                bounds.top >= safeTop - 1f
+            )
+        }
+    }
+
     private fun screenshot(name: String, expectedTag: String) {
         // Asserting the Compose semantics tree is not sufficient to synchronize
         // Android SurfaceFlinger frame presentation. Verify the intended route,
@@ -57,6 +74,9 @@ class PrototypeUiTest {
         compose.waitForIdle()
         InstrumentationRegistry.getInstrumentation().waitForIdleSync()
         SystemClock.sleep(450)
+        // Apply the same geometry gate to portrait, narrow, landscape and IME
+        // captures; navigation existence alone missed the status-bar overlap.
+        assertPrototypeHeaderClearsSystemBars()
         // The image draft is an Android Dialog: activity + dialog are separate
         // Compose semantics roots. Capture the DEVICE display, not onRoot(),
         // so overlays, permission UI and the soft keyboard are visible too.
