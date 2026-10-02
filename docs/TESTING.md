@@ -1,6 +1,6 @@
 # Android V1 测试与 AI 验收规范
 
-Status: **P1 historical CI executed; P2 source and fixture automation added; P3 dictation is a pending incremental PR, not a completed call; P4–P5 remain planned**. Historical P1 CI [run #36872285876](https://github.com/Initial-neko/character_memory_android/actions/runs/36872285876) has its own APK/JUnit and nine screen captures. Current P1/P2 gates are listed below. Real Core and Android media hardware remain NOT RUN until separately verified.
+Status: **P1 historical CI executed; P2 source and fixture automation added; P3 dictation + manual TTS are pending incremental PRs, not a completed call; P4–P5 remain planned**. Historical P1 CI [run #36872285876](https://github.com/Initial-neko/character_memory_android/actions/runs/36872285876) has its own APK/JUnit and nine screen captures. Current P1/P2 gates are listed below. Real Core and Android media hardware remain NOT RUN until separately verified.
 
 ## 当前自动化门槛
 
@@ -44,6 +44,7 @@ Report **PASS, FAIL, SKIPPED or NOT RUN** separately for every level. Never repl
 | SPACE-01 | list → paginate → comments/replies | cursor respected, <=10 server page cap, no loss on refresh |
 | IMAGE-01 | rewrite → generate → preview → confirm send | no unconfirmed draft becomes a durable chat message |
 | DICT-01 | tap mic → Android RECORD_AUDIO consent → PCM16 WAV → Media /v1/asr → draft text | permission denied is harmless; draft is not sent until explicit send; WAV size bounded and no retries; mic released on Stop/leave chat |
+| TTS-01 | user taps character reply → Media /v1/tts → private WAV/MP3 playback | audio focus and cache cleanup; 503 fails without replay or chat write; actual headset/device playback NOT RUN |
 | CALL-01 | audio segment → ASR → Core 202/SSE → TTS | correct conversation and speaker, ordered subtitles/audio (NOT implemented by DICT-01) |
 | CALL-02 | incoming speech while AI waiting/speaking | no duplicate/overlapping queue, cancellation releases mic and player |
 | CAM-01 | camera start/front-back switch/stop | proper preview, bounded keyframes, camera released on exit |
@@ -55,7 +56,7 @@ Report **PASS, FAIL, SKIPPED or NOT RUN** separately for every level. Never repl
 | LIFE-01 | app pause/resume, lock, Wi-Fi↔cell, tailnet drop | documented degradation + recovery; no stuck service or leaked resources |
 | PERF-01 | 30 minute audio+visual session | logged frame count/bytes, CPU/RAM, battery/thermal (hardware-only); no assumed thresholds |
 
-P3 dictation slice currently uses a user-started foreground AudioRecord with a 30-second cap; it uploads only after the user stops, and inserts ASR text in the unsent composer. It does **not** perform TTS, autonomous voice reply, full-duplex conversation, or background microphone capture. CI validates WAV byte layout, Media-only POST/header and no 503 replay; the emulator verifies visible UI entry. Physical microphone quality, permission dialogs on OEM devices, phone Media runtime and call-loop playback are NOT RUN until dedicated hardware acceptance.
+P3 dictation slice currently uses a user-started foreground AudioRecord with a 30-second cap; it uploads only after the user stops, and inserts ASR text in the unsent composer. On-demand character message TTS is a separate slice: it sends a bounded text to Media `/v1/tts`, plays the returned WAV/MP3 with transient audio focus, and deletes the temporary app-cache file when playback ends or the app leaves chat. It does **not** automatically synthesize every SSE reply or implement a full-duplex call/background microphone capture. CI validates WAV byte layout, Media-only POST/header and no 503 replay; the emulator verifies visible UI entry. Physical microphone quality, permission dialogs on OEM devices, phone Media runtime and call-loop playback are NOT RUN until dedicated hardware acceptance.
 
 ## 3. Mock fixtures
 
