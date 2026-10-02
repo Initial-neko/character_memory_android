@@ -125,7 +125,8 @@ internal fun LiveChat(state: LiveState, model: LiveViewModel) {
                                 if (!fromUser && message.text("content").isNotBlank()) {
                                     TextButton(onClick = {
                                         model.toggleSpeech(message.text("id"), message.text("content"), speakerId)
-                                    }, modifier = Modifier.testTag("live-message-speak-${message.text("id")}"),
+                                    }, enabled = !state.dictating && "asr" !in state.busy,
+                                        modifier = Modifier.testTag("live-message-speak-${message.text("id")}"),
                                         contentPadding = PaddingValues(horizontal = 2.dp, vertical = 2.dp)) {
                                         Text(if (state.speakingMessageId == message.text("id")) "■ 停止朗读" else "▶ 朗读",
                                             style = MaterialTheme.typography.labelSmall)
