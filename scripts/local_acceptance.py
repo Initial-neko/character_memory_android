@@ -70,10 +70,19 @@ def git_state(expected_sha=None):
             "clean": rc2 == 0 and not dirt, "problems": problems}
 
 
+def native_path(value):
+    """Translate Git Bash /c/... paths for native Windows Python."""
+    if not value:
+        return None
+    if os.name == "nt" and re.match(r"^/[A-Za-z]/", value):
+        return value[1].upper() + ":" + value[2:].replace("/", "\\")
+    return value
+
+
 def preflight(expected_sha=None):
     git = git_state(expected_sha)
-    java_home = os.environ.get("JAVA_HOME")
-    sdk = os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT")
+    java_home = native_path(os.environ.get("JAVA_HOME"))
+    sdk = native_path(os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT"))
     wrapper = ROOT / "gradlew"
     rc_java, version = shell([str(Path(java_home) / "bin" / ("java.exe" if os.name == "nt" else "java"))
                              if java_home else "java", "-version"])
@@ -276,7 +285,7 @@ def run_p1(output, expected_sha):
             serial = pre["emulator_serial"]
             screenshots = output / "screenshots"
             screenshots.mkdir(parents=True, exist_ok=True)
-            pull_exit = run_command(["adb", "-s", serial, "pull",
+            pull_exit = run_command(["adb", "-s", serial, "pull", "-a",
                          "/sdcard/Pictures/CharacterMemoryP1", str(screenshots)],
                         output / "logs/screenshot-pull.log", timeout=90)
             # adb pull creates <output>/screenshots/CharacterMemoryP1/.
@@ -287,7 +296,7 @@ def run_p1(output, expected_sha):
                           and screens["status"] == "PASS" and pull_exit == 0 else "FAIL",
                 "gradle_exit": rc, "screenshot_pull_exit": pull_exit, "ui": ui, "screens": screens,
                 "log": "logs/emulator.log",
-                "note": "Screen evidence uses file freshness; existing screenshots cannot silently satisfy this run.",
+                "note": "ADB pull -a retains device mtime; old MediaStore screenshots cannot silently satisfy this run.",
             }
         else:
             steps["G1-emulator-and-screens"] = {
