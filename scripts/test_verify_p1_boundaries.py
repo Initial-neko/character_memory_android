@@ -47,6 +47,15 @@ class BoundaryTest(unittest.TestCase):
         self.write_manifest("CAMERA")
         self.assertEqual(1, self.run_check()[0])
 
+    def test_shared_mic_permission_allowed_for_live_only(self):
+        self.write_manifest("RECORD_AUDIO")
+        self.assertEqual(0, self.run_check()[0])
+
+    def test_microphone_dependency_in_mock_prohibited(self):
+        (self.package / "screens/MockScreen.kt").write_text(
+            "import com.charactermemory.android.media.ShortWavRecorder\\n" + self.tags, encoding="utf-8")
+        self.assertEqual(1, self.run_check()[0])
+
     def test_network_import_in_mock_prohibited(self):
         (self.package / "PrototypeModels.kt").write_text("import okhttp3.OkHttpClient", encoding="utf-8")
         code, evidence = self.run_check()
