@@ -82,6 +82,11 @@ class LiveViewModel(
     fun stopDictation() {
         val microphone = dictation ?: return
         dictation = null
+        if (!active || mutable.value.config.coreUrl.isBlank()) {
+            microphone.close()
+            update { it.copy(dictating = false, dictationStatus = "") }
+            return
+        }
         update { it.copy(dictating = false, dictationStatus = "正在识别…") }
         operation("asr") { client ->
             try {
@@ -256,6 +261,11 @@ class LiveViewModel(
     fun show(page: LivePage) {
         val old = mutable.value.page
         if (old == page) return
+        // Image/detail overlays do not cancel the chat session; they must still stop the mic.
+        if (old == LivePage.CHAT && page != LivePage.CHAT) {
+            dictation?.close(); dictation = null
+            update { it.copy(dictating = false, dictationStatus = "") }
+        }
         val chatPages = setOf(LivePage.CHAT, LivePage.IMAGE, LivePage.DETAILS)
         if (old in chatPages && page !in chatPages) cancelSession()
         // Prevent late draft writes from repopulating a feature after navigation.
