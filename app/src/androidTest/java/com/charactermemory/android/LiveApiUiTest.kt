@@ -279,7 +279,8 @@ class LiveApiUiTest {
         compose.onNodeWithTag("live-space-comment-1").performScrollTo().performTextInput("fixture comment")
         tap("live-space-comment-send-1", true)
         compose.waitUntil(10_000) { model.state.value.commentReceipts["1"] != null }
-        compose.onNodeWithTag("live-space-auto-refresh-1").assertIsDisplayed()
+        // The status lives below the comment editor in a scrollable feed item.
+        compose.onNodeWithTag("live-space-auto-refresh-1").performScrollTo().assertIsDisplayed()
         dispatcher.externalReply.set(true)
         compose.waitUntil(17_000) {
             model.state.value.posts.firstOrNull()?.getAsJsonArray("comments")?.any { item ->
