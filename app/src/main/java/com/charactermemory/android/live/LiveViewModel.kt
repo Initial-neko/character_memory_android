@@ -71,6 +71,8 @@ class LiveViewModel(
             update { it.copy(error = "请先允许麦克风权限") }
             return
         }
+        // A user-initiated microphone capture must not transcribe our own TTS playback.
+        stopSpeech()
         val microphone = ShortWavRecorder()
         try {
             microphone.start(CoroutineScope(viewModelScope.coroutineContext + session))
@@ -117,7 +119,8 @@ class LiveViewModel(
         if (mutable.value.speakingMessageId == messageId) { stopSpeech(); return }
         stopSpeech()
         val target = mutable.value.target ?: return
-        if (!active || mutable.value.page != LivePage.CHAT || text.isBlank()) return
+        if (!active || mutable.value.page != LivePage.CHAT || text.isBlank() ||
+            mutable.value.dictating || "asr" in mutable.value.busy) return
         val generation = fence.current
         update { it.copy(speakingMessageId = messageId, speechStatus = "正在合成…", error = null) }
         speechJob = CoroutineScope(viewModelScope.coroutineContext + session).launch {
