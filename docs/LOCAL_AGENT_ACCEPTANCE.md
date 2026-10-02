@@ -41,8 +41,8 @@ export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:
 java -version
 adb devices -l
 emulator -list-avds
-git rev-parse HEAD
-git status --short
+git -C ../character_memory_android_acceptance rev-parse HEAD
+git -C ../character_memory_android_acceptance status --short
 ~~~
 
 若本地无 Pixel_9 已启动，人工运行 `emulator -avd Pixel_9`。**仅一个模拟器、没有其他设备**时才可以执行 G1，防止 Gradle 对真实手机运行自动化操作。
