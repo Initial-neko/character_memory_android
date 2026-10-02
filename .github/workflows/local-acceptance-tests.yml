@@ -1,0 +1,37 @@
+name: Local acceptance harness self-tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/local_acceptance.py'
+      - 'tests/test_local_acceptance.py'
+      - '.github/workflows/local-acceptance-tests.yml'
+      - 'docs/LOCAL_AGENT_ACCEPTANCE.md'
+  pull_request:
+    paths:
+      - 'scripts/local_acceptance.py'
+      - 'tests/test_local_acceptance.py'
+      - '.github/workflows/local-acceptance-tests.yml'
+      - 'docs/LOCAL_AGENT_ACCEPTANCE.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance-self-tests:
+    name: Safe G0-G2 runner / Python stdlib self-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check Python syntax
+        run: python -m compileall -q scripts/local_acceptance.py tests/test_local_acceptance.py
+      - name: Acceptance harness unit and safety tests
+        run: python -m unittest discover -s tests -p test_local_acceptance.py -v
+      - name: CLI help (no Core, no Android SDK, no device writes)
+        run: python scripts/local_acceptance.py --help
