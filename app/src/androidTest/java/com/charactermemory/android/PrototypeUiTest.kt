@@ -48,6 +48,16 @@ class PrototypeUiTest {
         }
     )
 
+    private fun dismissIme() {
+        // Espresso may wait for a root that is not focused while IME owns the window.
+        compose.runOnUiThread {
+            val service = compose.activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                as android.view.inputmethod.InputMethodManager
+            service.hideSoftInputFromWindow(compose.activity.window.decorView.windowToken, 0)
+        }
+        compose.waitForIdle()
+    }
+
     private fun screenshot(name: String, expectedTag: String) {
         // Asserting the Compose semantics tree is not sufficient to synchronize
         // Android SurfaceFlinger frame presentation. Verify the intended route,
@@ -97,15 +107,18 @@ class PrototypeUiTest {
         compose.onNodeWithTag("screen-character").assertExists()
         compose.onNodeWithTag("character-description").performTextInput("喜欢摄影、旅行和咖啡的朋友")
         compose.onNodeWithTag("character-preview").assertIsEnabled().performClick()
+        compose.waitUntil(5_000) {
+            compose.onAllNodes(hasTestTag("character-preview-card")).fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithTag("character-preview-card").assertExists()
-        Espresso.closeSoftKeyboard()
+        dismissIme()
         screenshot("03-character-create", "screen-character")
 
         compose.onNodeWithTag("nav-back").performClick()
         compose.onNodeWithTag("home-create-group").performClick()
         compose.onNodeWithTag("group-description").performTextInput("喜欢二次元、技术和旅行的朋友小队")
         compose.onNodeWithTag("group-preview").assertIsEnabled().performClick()
-        Espresso.closeSoftKeyboard()
+        dismissIme()
         screenshot("04-group-create", "screen-group")
 
         compose.onNodeWithTag("nav-back").performClick()
@@ -115,7 +128,7 @@ class PrototypeUiTest {
         compose.onNodeWithTag("chat-image-preview").performClick()
         compose.onNodeWithTag("image-preview-dialog").assertExists()
         compose.onNodeWithTag("image-prompt").performTextInput("两个人一起喝咖啡的温暖画面")
-        Espresso.closeSoftKeyboard()
+        dismissIme()
         screenshot("08-imagegen-draft", "image-preview-dialog")
         compose.onNodeWithTag("image-preview-close").performClick()
         compose.onNodeWithTag("chat-open-call").performClick()
@@ -139,7 +152,7 @@ class PrototypeUiTest {
         compose.onNodeWithTag("screen-group-chat").assertExists()
         compose.onNodeWithTag("group-chat-input").performTextInput("本地群聊消息")
         compose.onNodeWithTag("group-chat-send").assertIsEnabled().performClick()
-        Espresso.closeSoftKeyboard()
+        dismissIme()
         screenshot("09-group-chat", "screen-group-chat")
     }
 
@@ -223,7 +236,7 @@ class PrototypeUiTest {
             )
             screenshot("12-chat-ime", "screen-chat")
         } finally {
-            Espresso.closeSoftKeyboard()
+            dismissIme()
             device.executeShellCommand("wm size reset")
             if (originalKeyboardSetting == "0" || originalKeyboardSetting == "1") {
                 device.executeShellCommand(
