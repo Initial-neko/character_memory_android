@@ -136,8 +136,9 @@ internal fun LiveImage(state: LiveState, model: LiveViewModel) {
                     modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp, max = 320.dp).testTag("live-image-preview")
                         .semantics { stateDescription = previewStatus },
                     onSuccess = { previewStatus = "已加载" }, onError = { previewStatus = "加载失败" })
+                else Text("图片草稿无法预览", color = LiveMuted, modifier = Modifier.fillMaxWidth().testTag("live-image-preview-error"))
                 if (previewStatus == "加载失败") Text("图片预览加载失败", color = LiveMuted)
-                LiveAction("确认发送到当前聊天", "live-image-confirm-send", "send" !in state.busy) { model.sendImageDraft() }
+                LiveAction("确认发送到当前聊天", "live-image-confirm-send", "send" !in state.busy && bytes != null) { model.sendImageDraft() }
                 OutlinedButton(onClick = model::discardImage, enabled = "send" !in state.busy, modifier = Modifier.testTag("live-image-discard")) { Text("放弃草稿") }
             }
         }
