@@ -58,7 +58,7 @@ class CoreApiTest {
             core.start(); media.start()
             val api = CoreApi(ServerConfig(core.url("/").toString(), media.url("/").toString()))
             val wav = com.charactermemory.android.media.WavPcm16.encode(ByteArray(3200))
-            media.enqueue(MockResponse().setBody("{\\\"text\\\":\\\"识别到了语音\\\",\\\"provider\\\":\\\"mock\\\"}"))
+            media.enqueue(MockResponse().setBody("""{"text":"识别到了语音","provider":"mock"}"""))
             assertEquals("识别到了语音", api.transcribeWav(wav))
             val upload = media.takeRequest()
             assertEquals("/v1/asr", upload.path)
@@ -67,8 +67,8 @@ class CoreApiTest {
             assertArrayEquals(wav, upload.body.readByteArray())
             assertEquals(0, core.requestCount)
             media.enqueue(MockResponse().setResponseCode(503).setHeader("Retry-After", "0")
-                .setBody("{\\\"detail\\\":\\\"asr down\\\"}"))
-            media.enqueue(MockResponse().setBody("{\\\"text\\\":\\\"should not retry\\\"}"))
+                .setBody("""{"detail":"asr down"}"""))
+            media.enqueue(MockResponse().setBody("""{"text":"should not retry"}"""))
             try { api.transcribeWav(wav); fail("ASR 503 must not trigger a second POST") }
             catch (error: ApiFailure) { assertEquals(503, error.status) }
             assertEquals(2, media.requestCount)
