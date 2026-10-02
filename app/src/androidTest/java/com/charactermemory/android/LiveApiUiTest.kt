@@ -145,6 +145,8 @@ class LiveApiUiTest {
         tap("live-character-rin")
         waitTag("live-chat")
         compose.onNodeWithTag("live-chat-input").assertIsDisplayed()
+        compose.onNodeWithTag("live-dictation-toggle").assertIsDisplayed()
+        // UI entry presence does not count as an actual microphone/ASR hardware test.
         assertTrue(dispatcher.writes.isEmpty())
     }
 
