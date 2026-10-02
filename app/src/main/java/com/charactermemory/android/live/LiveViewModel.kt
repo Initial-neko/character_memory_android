@@ -5,6 +5,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.charactermemory.android.data.*
+import com.charactermemory.android.media.ShortWavRecorder
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import com.google.gson.JsonObject
 import java.io.Closeable
 import java.net.URLEncoder
@@ -21,7 +25,9 @@ class LiveViewModel(
     initialConfig: ServerConfig? = null,
     preferencesName: String = "live-core-v1"
 ) : ViewModel() {
-    private val preferences = context.applicationContext.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+    private val appContext = context.applicationContext
+    private val preferences = appContext.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+    private var dictation: ShortWavRecorder? = null
     private val savedConfig = runCatching {
         ServerConfig.normalize(preferences.getString("core", ServerConfig.DEFAULT_CORE) ?: ServerConfig.DEFAULT_CORE,
             preferences.getString("media", "") ?: "")
@@ -53,6 +59,50 @@ class LiveViewModel(
     internal fun pathId(id: String): String = URLEncoder.encode(id, "UTF-8").replace("+", "%20")
     fun assetUrl(path: String): String = runCatching { api.assetUrl(path) }.getOrDefault("")
     fun editText(value: String) = update { it.copy(composeText = value.take(12000)) }
+
+    /** Only a user gesture in the active chat can begin a microphone session. */
+    fun startDictation() {
+        if (!active || mutable.value.page != LivePage.CHAT || mutable.value.target == null ||
+            dictation != null || "asr" in mutable.value.busy) return
+        if (ContextCompat.checkSelfPermission(appContext, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            update { it.copy(error = "请先允许麦克风权限") }
+            return
+        }
+        val microphone = ShortWavRecorder()
+        try {
+            microphone.start(CoroutineScope(viewModelScope.coroutineContext + session))
+            dictation = microphone
+            update { it.copy(dictating = true, dictationStatus = "录音中 · 最长 30 秒；再次点击转文字", error = null) }
+        } catch (error: Exception) {
+            microphone.close()
+            update { it.copy(dictating = false, dictationStatus = "", error = error.message ?: "无法录音") }
+        }
+    }
+
+    fun stopDictation() {
+        val microphone = dictation ?: return
+        dictation = null
+        update { it.copy(dictating = false, dictationStatus = "正在识别…") }
+        operation("asr") { client ->
+            try {
+                val wav = microphone.finish()
+                val transcript = client.transcribeWav(wav)
+                currentCoroutineContext().ensureActive()
+                update { current ->
+                    val prefix = current.composeText.trimEnd()
+                    current.copy(composeText = (if (prefix.isBlank()) transcript else "$prefix $transcript").take(12000),
+                        dictationStatus = "已填入识别文字，确认后再发送")
+                }
+            } finally {
+                microphone.close()
+                update { current -> if (current.dictationStatus == "正在识别…") current.copy(dictationStatus = "") else current }
+            }
+        }
+    }
+
+    fun dictationPermissionDenied() = update {
+        it.copy(error = "麦克风权限未授予，仍可输入文字聊天", dictationStatus = "")
+    }
     fun editCharacterPrompt(value: String) = update { it.copy(characterPrompt = value.take(4000)) }
     fun editEnsemblePrompt(value: String) = update { it.copy(ensemblePrompt = value.take(2000)) }
     fun editImageInstruction(value: String) = update { it.copy(imageInstruction = value.take(1600)) }
@@ -61,6 +111,7 @@ class LiveViewModel(
     }
 
     private fun cancelSession(reason: String? = null) {
+        dictation?.close(); dictation = null
         fence.advance()
         stream?.close(); stream = null
         reconnect?.cancel(); reconnect = null
@@ -71,7 +122,8 @@ class LiveViewModel(
         pendingMemberProgress = emptyList()
         val ambiguous = activeWrites > 0
         activeWrites = 0
-        update { it.copy(busy = emptySet(), streamStatus = "未连接", reaction = "idle",
+        update { it.copy(busy = emptySet(), dictating = false, dictationStatus = "",
+            streamStatus = "未连接", reaction = "idle",
             notice = if (ambiguous) "操作已取消，服务器可能已经接收；请刷新记录确认，勿直接重复提交。" else reason ?: it.notice) }
     }
 
