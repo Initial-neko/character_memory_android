@@ -239,8 +239,11 @@ class ScreenShareService : Service() {
                 val cropped = Bitmap.createBitmap(padded, 0, 0, image.width, image.height)
                 try {
                     val factor = minOf(1.0, 1080.0 / max(image.width, image.height))
-                    val scaled = Bitmap.createScaledBitmap(cropped,
-                        max(1, (image.width * factor).roundToInt()), max(1, (image.height * factor).roundToInt()), true)
+                    // Never expose a bitmap that the finally block may recycle. createScaledBitmap
+                    // may return the input when the dimensions are unchanged.
+                    val scaled = if (factor == 1.0) cropped.copy(Bitmap.Config.ARGB_8888, false)
+                        else Bitmap.createScaledBitmap(cropped,
+                            max(1, (image.width * factor).roundToInt()), max(1, (image.height * factor).roundToInt()), true)
                     val sample = Bitmap.createScaledBitmap(scaled, 32, 32, true)
                     try {
                         val argb = IntArray(32 * 32)
