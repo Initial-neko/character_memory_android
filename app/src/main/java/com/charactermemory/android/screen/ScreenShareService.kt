@@ -23,7 +23,6 @@ import com.charactermemory.android.data.text
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import java.io.ByteArrayOutputStream
-import java.io.Closeable
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -66,6 +65,7 @@ class ScreenShareService : Service() {
                 putExtra(EXTRA_CHARACTER, character)
                 putExtra(EXTRA_CONVERSATION, conversation)
             })
+            ScreenShareStatus.state.value = ScreenShareSnapshot(true, character, conversation, "等待前台服务启动")
         }
 
         fun stop(context: Context) {
@@ -83,7 +83,7 @@ class ScreenShareService : Service() {
     private var callback: MediaProjection.Callback? = null
     private var sampler: Job? = null
     private var density: Int = 1
-    private var stopping = false
+    @Volatile private var stopping = false
 
     override fun onBind(intent: Intent?) = null
 
@@ -167,7 +167,8 @@ class ScreenShareService : Service() {
                 withContext(Dispatchers.Main) { finish("Core 未启用 Direct 屏幕自动观察") }
                 return
             }
-            val minimumMillis = (config.number("interval_seconds", 30).coerceAtLeast(10) * 1000).toLong()
+            val intervalSeconds = config.text("interval_seconds", "30").toDoubleOrNull() ?: 30.0
+            val minimumMillis = (intervalSeconds.coerceAtLeast(10.0) * 1000).toLong()
             var lastAttempt = 0L
             var baseline: IntArray? = null
             var failures = 0
@@ -175,7 +176,7 @@ class ScreenShareService : Service() {
                 delay(3000)
                 val frame = readFrame() ?: continue
                 val pixels = frame.first
-                if (!ScreenSamplingPolicy.significant(baseline, pixels)) continue
+                if (!ScreenSamplingPolicy.significant(baseline, pixels)) { frame.second.recycle(); continue }
                 val now = SystemClock.elapsedRealtime()
                 if (lastAttempt != 0L && now - lastAttempt < minimumMillis) {
                     frame.second.recycle()
