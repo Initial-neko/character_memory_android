@@ -19,8 +19,8 @@
 
 | 项目 | 当前本地安装 | Android 本仓库要求 |
 |---|---|---|
-| JDK | C:\Users\cute\.jdks\liberica-17.0.20.1 | 17（系统默认可能是 8） |
-| Android SDK | C:\Users\cute\AppData\Local\Android\Sdk | Platform 35 |
+| JDK | 当前用户主目录\.jdks\liberica-17.0.20.1 | 17（系统默认可能是 8） |
+| Android SDK | 当前用户主目录\AppData\Local\Android\Sdk | Platform 35 |
 | Gradle | app_guard 的 9.3.0 | PR #9 固定官方 Wrapper 8.9，不能混用 |
 | 模拟器 | Pixel_9 API 35 | 唯一在线 AVD，不允许同时连真机 |
 | Build Tools | 34.0.0 / 36.0.0 | 是否可满足本项目构建，需实测 |
@@ -33,11 +33,12 @@ git worktree add --detach ../character_memory_android_acceptance origin/fix/p1-i
 git worktree add --detach ../character_memory_android_tools origin/test/local-agent-acceptance-gates
 cd ../character_memory_android_tools
 
-export JAVA_HOME="/c/Users/cute/.jdks/liberica-17.0.20.1"
-export ANDROID_HOME="/c/Users/cute/AppData/Local/Android/Sdk"
+export JAVA_HOME="$HOME/.jdks/liberica-17.0.20.1"
+export ANDROID_HOME="$HOME/AppData/Local/Android/Sdk"
 export ANDROID_SDK_ROOT="$ANDROID_HOME"
 export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
 
+test -d "$JAVA_HOME" && test -d "$ANDROID_HOME"
 java -version
 adb devices -l
 emulator -list-avds
