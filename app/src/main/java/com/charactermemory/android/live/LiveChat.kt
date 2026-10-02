@@ -1,5 +1,11 @@
 package com.charactermemory.android.live
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -32,6 +38,12 @@ internal fun LiveAvatar(name: String, path: String, model: LiveViewModel) {
 @Composable
 internal fun LiveChat(state: LiveState, model: LiveViewModel) {
     val target = state.target ?: return
+    val context = LocalContext.current
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted && model.state.value.page == LivePage.CHAT && model.state.value.target?.id == target.id) {
+            model.startDictation()
+        } else if (!granted) model.dictationPermissionDenied()
+    }
     var showStickers by rememberSaveable(target.id) { mutableStateOf(false) }
     var advanced by rememberSaveable(target.id) { mutableStateOf(false) }
     var conversationOverride by rememberSaveable(target.id, target.conversationId) { mutableStateOf(target.conversationId) }
@@ -142,12 +154,27 @@ internal fun LiveChat(state: LiveState, model: LiveViewModel) {
                 modifier = Modifier.testTag("live-image-open")) { Text("✦") }
             OutlinedTextField(state.composeText, model::editText, placeholder = { Text("输入消息…") }, maxLines = 4,
                 modifier = Modifier.weight(1f).testTag("live-chat-input"))
-            Button(onClick = { model.send() }, enabled = "send" !in state.busy && state.composeText.isNotBlank(),
+            TextButton(onClick = {
+                if (state.dictating) model.stopDictation()
+                else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                    model.startDictation()
+                } else micPermission.launch(Manifest.permission.RECORD_AUDIO)
+            }, enabled = "asr" !in state.busy && "send" !in state.busy,
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
+                modifier = Modifier.testTag("live-dictation-toggle")) {
+                Text(if (state.dictating) "停止" else "🎙")
+            }
+            Button(onClick = { model.send() }, enabled = "send" !in state.busy && state.composeText.isNotBlank() && !state.dictating,
+
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFF397CFF)),
                 modifier = Modifier.testTag("live-chat-send")) {
                 Text(if ("send" in state.busy) "…" else "发送")
             }
+        }
+        if (state.dictationStatus.isNotBlank()) {
+            Text(state.dictationStatus, color = LiveMuted, style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(bottom = 4.dp).testTag("live-dictation-status"))
         }
     }
 }
