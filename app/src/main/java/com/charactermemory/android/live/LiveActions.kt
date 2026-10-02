@@ -110,7 +110,9 @@ fun LiveViewModel.loadSpace(older: Boolean = false) {
         cursor?.let { query["before_id"] = it }
         val page = client.get("/v1/space/posts", query)
         currentCoroutineContext().ensureActive()
-        update { it.copy(posts = if (older) LiveRules.mergeRecords(it.posts, page.items("posts")) else LiveRules.refreshRecords(it.posts, page.items("posts")),
+        update {
+            val posts = page.items("posts").map { post -> LiveRules.preserveConfirmedComments(post, it.confirmedComments[post.text("id")].orEmpty()) }
+            it.copy(posts = if (older) LiveRules.mergeRecords(it.posts, posts) else LiveRules.refreshRecords(it.posts, posts),
             spaceCursor = if (older || !it.spacePaged) LiveRules.nextCursor(page) else it.spaceCursor,
             spacePaged = older || it.spacePaged) }
     }
@@ -118,7 +120,9 @@ fun LiveViewModel.loadSpace(older: Boolean = false) {
 
 fun LiveViewModel.refreshPost(id: String) = operation("space-post-$id") { client ->
     val post = client.get("/v1/space/posts/${pathId(id)}").objOrNull("post") ?: error("动态不存在")
-    currentCoroutineContext().ensureActive(); update { it.copy(posts = LiveRules.mergeRecords(it.posts, listOf(post))) }
+    currentCoroutineContext().ensureActive(); update {
+        it.copy(posts = LiveRules.mergeRecords(it.posts, listOf(LiveRules.preserveConfirmedComments(post, it.confirmedComments[id].orEmpty()))))
+    }
 }
 
 fun LiveViewModel.comment(postId: String, content: String, replyTo: Long? = null, stickerId: String? = null) {
@@ -127,13 +131,16 @@ fun LiveViewModel.comment(postId: String, content: String, replyTo: Long? = null
         val response = client.post("/v1/space/posts/${pathId(postId)}/comments", jsonObject("content" to content.trim().take(1000),
             "reply_to_comment_id" to replyTo, "sticker_id" to stickerId))
         val comment = response.objOrNull("comment") ?: error("服务器没有返回评论凭据，请刷新动态确认")
+        val receiptId = comment.text("id").takeIf { it.isNotBlank() } ?: error("服务器未返回评论 ID，请刷新确认")
         currentCoroutineContext().ensureActive()
         update { current -> current.copy(posts = current.posts.map { post ->
             if (post.text("id") != postId) post else post.deepCopy().apply {
                 val comments = LiveRules.mergeRecords(post.items("comments"), listOf(comment))
                 add("comments", com.google.gson.JsonArray().apply { comments.forEach { add(it) } })
             }
-        }, notice = "评论已保存；人物回复请刷新查看。") }
+        }, commentReceipts = current.commentReceipts + (postId to CommentReceipt(receiptId, content, replyTo)),
+            confirmedComments = current.confirmedComments + (postId to LiveRules.mergeRecords(current.confirmedComments[postId].orEmpty(), listOf(comment))),
+            notice = "评论已保存；人物回复请刷新查看。") }
     }
 }
 

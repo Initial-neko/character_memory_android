@@ -43,10 +43,13 @@ private fun LivePost(post: JsonObject, state: LiveState, model: LiveViewModel) {
     var reply by rememberSaveable(state.config.coreUrl, id) { mutableStateOf<Long?>(null) }
     var showComments by rememberSaveable(state.config.coreUrl, id) { mutableStateOf(false) }
     val comments = post.items("comments")
-    var observedCount by remember(id) { mutableIntStateOf(comments.size) }
-    LaunchedEffect(comments.size) {
-        if (comments.size > observedCount) { comment = ""; reply = null }
-        observedCount = comments.size
+    val receipt = state.commentReceipts[id]
+    var handledReceipt by rememberSaveable(state.config.coreUrl, id) { mutableStateOf(receipt?.id) }
+    LaunchedEffect(receipt?.id) {
+        if (receipt != null && receipt.id != handledReceipt) {
+            if (LiveRules.shouldClearCommentDraft(comment, reply, receipt)) { comment = ""; reply = null }
+            handledReceipt = receipt.id
+        }
     }
     Card(Modifier.fillMaxWidth().testTag("live-space-post-$id"), colors = CardDefaults.cardColors(containerColor = LivePanel)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {

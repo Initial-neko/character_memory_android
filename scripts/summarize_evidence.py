@@ -97,7 +97,7 @@ def summarize(root: Path, mode: str, profile: str = "p1", min_tests: int | None 
     missing_screens = sorted(set(expected_screens) - set(shot_names))
     unexpected_screens = sorted(set(shot_names) - set(expected_screens))
     duplicate_screens = sorted(name for name in set(shot_names) if shot_names.count(name) > 1)
-    expected_min_tests = (13 if mode == "jvm" else 5) if profile == "p1" else (min_tests or (21 if mode == "jvm" else 5))
+    expected_min_tests = (13 if mode == "jvm" else 5) if profile == "p1" else (min_tests or (25 if mode == "jvm" else 6))
     status = (
         "FAIL" if invalid_xmls or duplicate_tests
         else "NOT_RUN" if valid == 0 or tests == 0

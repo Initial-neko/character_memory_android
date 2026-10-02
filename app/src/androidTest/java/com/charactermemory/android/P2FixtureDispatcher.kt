@@ -6,6 +6,8 @@ import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.RecordedRequest
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** Synthetic payloads mirror Core508c6f0 route schemas, not private user data. */
@@ -13,6 +15,11 @@ internal class P2FixtureDispatcher : Dispatcher() {
     val writes = CopyOnWriteArrayList<Pair<String, JsonObject>>()
     val sent = AtomicBoolean(false)
     val commented = AtomicBoolean(false)
+    val externalReply = AtomicBoolean(false)
+    @Volatile var holdPostRead = false
+    @Volatile var commentDelayMs = 0L
+    val postReadStarted = CountDownLatch(1)
+    val releasePostRead = CountDownLatch(1)
     var coreOffline = false
     private fun json(body: String, status: Int = 200) = MockResponse()
         .setResponseCode(status).setHeader("Content-Type", "application/json").setBody(body)
@@ -39,6 +46,7 @@ internal class P2FixtureDispatcher : Dispatcher() {
                 path == "/v1/space/posts/1/comments" -> {
                     commented.set(true)
                     json("""{"comment":{"id":5,"content":"fixture comment","actor_type":"USER","author":{"id":"user","name":"我"}},"post":${post()},"thread_replies":[]}""")
+                        .setBodyDelay(commentDelayMs, TimeUnit.MILLISECONDS)
                 }
                 else -> json("{\"detail\":\"unexpected fixture write\"}", 404)
             }
@@ -63,7 +71,11 @@ internal class P2FixtureDispatcher : Dispatcher() {
             }
             "/v1/characters/rin/persona" -> json("""{"id":"rin","name":"Rin","description":"Fixture persona"}""")
             "/v1/space/posts" -> json("""{"posts":[${post()}],"total":1,"has_more":false,"next_before_id":null,"max_feed_items":10}""")
-            "/v1/space/posts/1" -> json("""{"post":${post()}}""")
+            "/v1/space/posts/1" -> {
+                val snapshot = post()
+                if (holdPostRead) { postReadStarted.countDown(); check(releasePostRead.await(10, TimeUnit.SECONDS)) }
+                json("""{"post":$snapshot}""")
+            }
             "/v1/ensembles" -> json("{\"build\":null}")
             "/v1/ensembles/e1" -> json(build())
             else -> json("{\"detail\":\"not in fixture\"}", 404)
@@ -71,7 +83,10 @@ internal class P2FixtureDispatcher : Dispatcher() {
     }
 
     private fun post(): String {
-        val comments = if (commented.get()) """[{"id":5,"actor_type":"USER","author":{"id":"user","name":"我"},"content":"fixture comment","reply_to_comment_id":null}]""" else "[]"
+        val entries = mutableListOf<String>()
+        if (commented.get()) entries += """{"id":5,"actor_type":"USER","author":{"id":"user","name":"我"},"content":"fixture comment","reply_to_comment_id":null}"""
+        if (externalReply.get()) entries += """{"id":6,"actor_type":"CHARACTER","author":{"id":"rin","name":"Rin"},"content":"fixture external reply"}"""
+        val comments = entries.joinToString(",", "[", "]")
         return """{"id":1,"character_id":"rin","author":{"id":"rin","name":"Rin"},"content":"fixture space post","created_at":"2026-10-02T10:00:00+08:00","media_items":[],"comments":$comments,"like_count":0,"likes":[]}"""
     }
 

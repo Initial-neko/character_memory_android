@@ -6,8 +6,13 @@ import android.graphics.Bitmap
 import android.os.SystemClock
 import android.provider.MediaStore
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -15,8 +20,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
+import androidx.compose.ui.test.performTextReplacement
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -61,6 +65,7 @@ class LiveApiUiTest {
     private lateinit var client: OkHttpClient
     private lateinit var config: ServerConfig
     private lateinit var preferenceName: String
+    @Volatile private var imeBottom: Int = 0
 
     @Before fun launchSyntheticLiveApp() {
         val certificate = HeldCertificate.Builder().addSubjectAlternativeName("localhost").build()
@@ -80,12 +85,18 @@ class LiveApiUiTest {
         preferenceName = "p2-ui-" + UUID.randomUUID()
         compose.runOnUiThread {
             model = LiveViewModel(compose.activity, { CoreApi(it, client) }, config, preferenceName)
-            compose.activity.setContent { LiveApp(model) }
+            compose.activity.setContent {
+                // Read platform IME insets before the app's Compose padding consumes them.
+                val keyboardBottom = WindowInsets.ime.getBottom(LocalDensity.current)
+                SideEffect { imeBottom = keyboardBottom }
+                LiveApp(model)
+            }
         }
         compose.waitUntil(15_000) { model.state.value.characters.size == 2 }
     }
 
     @After fun stopSyntheticBackend() {
+        if (::dispatcher.isInitialized) dispatcher.releasePostRead.countDown()
         if (::model.isInitialized) compose.runOnUiThread { model.deactivate() }
         if (::core.isInitialized) core.shutdown()
         if (::media.isInitialized) media.shutdown()
@@ -148,12 +159,15 @@ class LiveApiUiTest {
             tap("live-chat-input")
             compose.onNodeWithTag("live-chat-input").performTextInput("fixture send")
             compose.waitUntil(10_000) {
-                ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true
+                imeBottom > 0
             }
             val decor = compose.activity.window.decorView
-            val keyboardTop = decor.height - requireNotNull(ViewCompat.getRootWindowInsets(decor)).getInsets(WindowInsetsCompat.Type.ime()).bottom
+            val keyboardTop = decor.height - imeBottom
             val bounds = compose.onNodeWithTag("live-chat-send").fetchSemanticsNode().boundsInWindow
             assertTrue("Live send button is covered by actual IME", bounds.bottom <= keyboardTop + 8f)
+            val inputBounds = compose.onNodeWithTag("live-chat-input").fetchSemanticsNode().boundsInWindow
+            assertTrue("Live input is covered by actual IME", inputBounds.bottom <= keyboardTop + 8f)
+            compose.onNodeWithTag("live-chat-send").assertIsEnabled()
             screenshot("04-chat-ime", "live-chat")
             tap("live-chat-send")
             compose.waitUntil(10_000) { model.state.value.messages.any { it.text("id") == "10" } }
@@ -194,13 +208,21 @@ class LiveApiUiTest {
         waitTag("live-character-preview")
         screenshot("06-character-draft", "live-character-preview")
         assertFalse(dispatcher.writes.any { it.first == "/v1/characters" })
-        compose.runOnUiThread { model.show(LivePage.HOME) }
+        tap("live-character-confirm", true)
+        compose.waitUntil(10_000) { model.state.value.page == LivePage.HOME }
+        assertEquals(1, dispatcher.writes.count { it.first == "/v1/characters" })
+        assertTrue(dispatcher.writes.first { it.first == "/v1/characters" }.second.has("draft"))
         tap("live-create-group")
         compose.onNodeWithTag("live-group-prompt").performTextInput("deterministic ensemble")
         tap("live-group-prepare", true)
         waitTag("live-ensemble-preview")
         screenshot("07-ensemble-preview", "live-ensemble-preview")
         assertFalse(dispatcher.writes.any { it.first.endsWith("/confirm") })
+        tap("live-ensemble-confirm", true)
+        compose.waitUntil(10_000) { model.state.value.page == LivePage.HOME }
+        val confirmation = dispatcher.writes.filter { it.first == "/v1/ensembles/e1/confirm" }
+        assertEquals(1, confirmation.size)
+        assertEquals(2, confirmation.single().second.getAsJsonArray("selected_indices").size())
     }
 
     @Test fun generatedImageRemainsDraftUntilUserExplicitlySends() {
@@ -213,5 +235,34 @@ class LiveApiUiTest {
         assertFalse(dispatcher.writes.any { it.first == "/v1/chat/messages" })
         val generation = dispatcher.writes.first { it.first.endsWith("/images/generate") }.second
         assertFalse(generation.get("persist_result").asBoolean)
+        tap("live-image-confirm-send", true)
+        compose.waitUntil(10_000) { model.state.value.page == LivePage.CHAT && model.state.value.imageDraft == null }
+        val sends = dispatcher.writes.filter { it.first == "/v1/chat/messages" }
+        assertEquals(1, sends.size)
+        assertTrue(sends.single().second.getAsJsonObject("image").text("data_url").startsWith("data:image/"))
+    }
+
+    @Test fun spaceRefreshAndLateConfirmationPreserveDraftAndConfirmedComment() {
+        compose.runOnUiThread { model.show(LivePage.SPACE) }
+        compose.waitUntil(10_000) { model.state.value.posts.isNotEmpty() }
+        val input = compose.onNodeWithTag("live-space-comment-1")
+        input.performScrollTo().performTextInput("draft A")
+        dispatcher.externalReply.set(true)
+        compose.runOnUiThread { model.refreshPost("1") }
+        compose.waitUntil(10_000) { "space-post-1" !in model.state.value.busy }
+        input.assertTextContains("draft A")
+
+        dispatcher.holdPostRead = true
+        dispatcher.commentDelayMs = 1500
+        compose.runOnUiThread { model.refreshPost("1") }
+        assertTrue(dispatcher.postReadStarted.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        tap("live-space-comment-send-1", true)
+        input.performScrollTo().performTextReplacement("draft B")
+        compose.waitUntil(10_000) { model.state.value.commentReceipts["1"] != null }
+        input.assertTextContains("draft B")
+        dispatcher.releasePostRead.countDown()
+        compose.waitUntil(10_000) { "space-post-1" !in model.state.value.busy }
+        assertTrue(model.state.value.posts.first().getAsJsonArray("comments").any { it.asJsonObject.text("id") == "5" })
+        input.assertTextContains("draft B")
     }
 }

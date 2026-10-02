@@ -38,8 +38,9 @@ internal fun LiveChat(state: LiveState, model: LiveViewModel) {
     val list = rememberLazyListState()
     var lastCount by remember(target.id) { mutableIntStateOf(0) }
     LaunchedEffect(state.messages.size) {
-        if (state.messages.size > lastCount && (lastCount == 0 || list.layoutInfo.visibleItemsInfo.lastOrNull()?.index == lastCount - 1)) {
-            if (state.messages.isNotEmpty()) list.scrollToItem(state.messages.lastIndex)
+        if (state.messages.size > lastCount && (lastCount == 0 || list.layoutInfo.visibleItemsInfo.lastOrNull()?.index == lastCount)) {
+            // The history/loading row occupies index 0 before the message items.
+            if (state.messages.isNotEmpty()) list.scrollToItem(state.messages.size)
         }
         lastCount = state.messages.size
     }

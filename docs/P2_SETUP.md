@@ -31,7 +31,7 @@ JVM `CoreApiTest` / `ConversationProjectionTest` 与 `LiveApiUiTest` 的 JSON/SS
 
 ## 前端自动化与用户后端验收
 
-CI 分开记录 P1/P2 JVM 和模拟器证据；两次 JVM 执行均使用 `--rerun-tasks`，分别保留 XML/JSON。P1 保持 ≥13 JVM、≥5 UI、准确的 12 个截图文件名；P2 保持 ≥18 JVM、≥5 UI 和 9 个独立截图。任何跳过、错误/缺失 XML、重复测试、缺截图都不记为 PASS。详见 [TESTING.md](TESTING.md)。
+CI 分开记录 P1/P2 JVM 和模拟器证据；两次 JVM 执行均使用 `--rerun-tasks`，分别保留 XML/JSON。P1 保持 ≥13 JVM、≥5 UI、准确的 12 个截图文件名；P2 保持 ≥25 JVM、≥6 UI 和 9 个独立截图。任何跳过、错误/缺失 XML、重复测试、缺截图都不记为 PASS。详见 [TESTING.md](TESTING.md)。
 
 模拟器 `LiveApiUiTest` 使用测试注入的本机 HTTPS MockWebServer，检查真实页面调用协议与状态；不访问用户 PC。TLS localhost fixture 和测试证书只用于测试。模拟器截图需在当前提交人工/AI 审查，特别是输入法与窄屏。
 

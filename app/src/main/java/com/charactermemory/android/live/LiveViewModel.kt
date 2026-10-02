@@ -42,6 +42,7 @@ class LiveViewModel(
     private var activeWrites = 0
     private var historyLoading = false
     private var historyPaged = false
+    private var pendingMemberProgress: List<JsonObject> = emptyList()
 
     init {
         if (initialConfig != null) preferences.edit().putString("core", initialConfig.coreUrl).putString("media", initialConfig.mediaUrl).apply()
@@ -67,6 +68,7 @@ class LiveViewModel(
         session.cancel()
         session = SupervisorJob(viewModelScope.coroutineContext[Job])
         historyLoading = false
+        pendingMemberProgress = emptyList()
         val ambiguous = activeWrites > 0
         activeWrites = 0
         update { it.copy(busy = emptySet(), streamStatus = "未连接", reaction = "idle",
@@ -187,7 +189,7 @@ class LiveViewModel(
         cancelSession()
         lastEventId = null; reconnectAttempt = 0; historyPaged = false
         update { it.copy(page = LivePage.CHAT, target = target, messages = emptyList(), composeText = "",
-            historyCursor = null, memberProgress = emptyList(), reactionError = null, imageDraft = null,
+            historyCursor = null, memberProgress = emptyList(), groupTurnId = null, reactionError = null, imageDraft = null,
             imagePrompt = "", imageInstruction = "", error = null, persona = null,
             imageCharacterId = if (target.group) target.memberIds.firstOrNull().orEmpty() else target.id) }
         loadHistory(); connectStream()
@@ -231,7 +233,10 @@ class LiveViewModel(
                 val page = client.get(if (target.group) "/v1/groups/${pathId(target.id)}/history" else "/v1/chat/history-page", query)
                 currentCoroutineContext().ensureActive()
                 update { it.copy(messages = ConversationProjection.merge(it.messages, page.items("messages")),
-                    historyCursor = if (older || !historyPaged) LiveRules.nextCursor(page) else it.historyCursor) }
+                    historyCursor = if (older || !historyPaged) LiveRules.nextCursor(page) else it.historyCursor,
+                    groupTurnId = if (target.group && it.groupTurnId == null && "send" !in it.busy)
+                        page.items("messages").lastOrNull { message -> message.text("role") == "user" }?.text("turn_id")?.takeIf { id -> id.isNotBlank() }
+                        else it.groupTurnId) }
                 if (older) historyPaged = true
             } finally { if (currentCoroutineContext().isActive) historyLoading = false }
         }
@@ -258,10 +263,13 @@ class LiveViewModel(
                 ConversationProjection.message(type, payload)?.let { message ->
                     update { it.copy(messages = ConversationProjection.merge(it.messages, listOf(message))) }
                 }
+                if (type == "group_member_complete" && "send" in mutable.value.busy && mutable.value.target?.group == true) {
+                    pendingMemberProgress = (pendingMemberProgress + payload).takeLast(12)
+                }
                 update { current -> current.copy(reaction = ConversationProjection.reaction(current.reaction, type, payload),
                     reactionError = if (type == "reaction_error") payload.text("message", "人物回复失败") else current.reactionError,
                     memberProgress = if (type == "group_member_complete")
-                        (current.memberProgress.filterNot { it.text("character_id") == payload.text("character_id") && it.text("turn_id") == payload.text("turn_id") } + payload)
+                        LiveRules.memberProgress(current.memberProgress, current.groupTurnId, payload)
                         else current.memberProgress) }
                 if (type == "reaction_error" || (type == "reaction_status" && payload.text("state") == "idle")) loadHistory()
             } },
@@ -291,16 +299,24 @@ class LiveViewModel(
         if (text.isBlank() && stickerId == null && image == null) return
         if (stickerId != null && image != null) return
         operation("send", write = true) { client ->
-            update { it.copy(notice = "发送中，尚未确认接收") }
+            if (target.group) pendingMemberProgress = emptyList()
+            update { it.copy(notice = "发送中，尚未确认接收",
+                memberProgress = if (target.group) emptyList() else it.memberProgress,
+                groupTurnId = if (target.group) null else it.groupTurnId) }
             val body = jsonObject("message" to text, "sticker_id" to stickerId, "image" to image)
             if (!target.group) { body.addProperty("character_id", target.id); body.addProperty("conversation_id", target.conversationId) }
             val accepted = client.post(if (target.group) "/v1/groups/${pathId(target.id)}/messages" else "/v1/chat/messages", body)
             currentCoroutineContext().ensureActive()
             if (!accepted.flag("accepted") || accepted.objOrNull("message") == null) error("服务器未返回接收凭据，请刷新历史确认")
+            val turnId = if (target.group) accepted.text("turn_id").takeIf { it.isNotBlank() } else null
+            val progress = pendingMemberProgress.fold(emptyList<JsonObject>()) { rows, item -> LiveRules.memberProgress(rows, turnId, item) }
+            pendingMemberProgress = emptyList()
             update { it.copy(messages = ConversationProjection.merge(it.messages, listOf(accepted.objOrNull("message")!!)),
                 composeText = if (it.composeText == snapshot.composeText) "" else it.composeText,
                 notice = "服务器已接收，等待人物决定是否回复", imageDraft = if (image != null) null else it.imageDraft,
-                page = if (image != null) LivePage.CHAT else it.page, reactionError = null) }
+                page = if (image != null) LivePage.CHAT else it.page, reactionError = null,
+                groupTurnId = if (target.group) turnId else it.groupTurnId,
+                memberProgress = if (target.group) progress else it.memberProgress) }
             loadHistory()
         }
     }

@@ -2,6 +2,7 @@ package com.charactermemory.android.live
 
 import com.charactermemory.android.data.ServerConfig
 import com.charactermemory.android.data.flag
+import com.charactermemory.android.data.items
 import com.charactermemory.android.data.text
 import com.google.gson.JsonObject
 import java.security.MessageDigest
@@ -9,6 +10,7 @@ import java.security.MessageDigest
 enum class LivePage { HOME, CHAT, SETTINGS, CHARACTER, ENSEMBLE, SPACE, IMAGE, DETAILS }
 data class ChatTarget(val id: String, val name: String, val group: Boolean, val conversationId: String,
     val memberIds: List<String> = emptyList())
+data class CommentReceipt(val id: String, val draftText: String, val replyTo: Long?)
 
 data class LiveState(
     val config: ServerConfig,
@@ -24,12 +26,15 @@ data class LiveState(
     val streamStatus: String = "未连接", val reaction: String = "idle",
     val reactionError: String? = null,
     val memberProgress: List<JsonObject> = emptyList(),
+    val groupTurnId: String? = null,
     val busy: Set<String> = emptySet(),
     val error: String? = null, val notice: String? = null,
     val draft: JsonObject? = null, val capacityConfirmation: String? = null,
     val build: JsonObject? = null, val selectedMembers: Set<Int> = emptySet(),
     val persona: JsonObject? = null,
     val posts: List<JsonObject> = emptyList(), val spaceCursor: String? = null, val spacePaged: Boolean = false,
+    val commentReceipts: Map<String, CommentReceipt> = emptyMap(),
+    val confirmedComments: Map<String, List<JsonObject>> = emptyMap(),
     val imagePrompt: String = "", val imageDraft: JsonObject? = null,
     val stickers: List<JsonObject> = emptyList(),
     val composeText: String = "", val characterPrompt: String = "", val ensemblePrompt: String = "",
@@ -58,6 +63,20 @@ object LiveRules {
     fun refreshRecords(existing: List<JsonObject>, newest: List<JsonObject>): List<JsonObject> {
         val newIds = newest.map { it.text("id") }.toSet()
         return mergeRecords(emptyList(), newest + existing.filterNot { it.text("id") in newIds })
+    }
+    fun shouldClearCommentDraft(text: String, replyTo: Long?, receipt: CommentReceipt): Boolean =
+        text == receipt.draftText && replyTo == receipt.replyTo
+    fun preserveConfirmedComments(post: JsonObject, confirmed: List<JsonObject>): JsonObject = post.deepCopy().apply {
+        val merged = mergeRecords(confirmed, post.items("comments")).sortedWith(
+            compareBy<JsonObject> { it.text("created_at_epoch").toDoubleOrNull() ?: 0.0 }
+                .thenBy { it.text("id").toLongOrNull() ?: Long.MAX_VALUE }
+        )
+        add("comments", com.google.gson.JsonArray().apply { merged.forEach { add(it) } })
+    }
+    fun memberProgress(existing: List<JsonObject>, turnId: String?, incoming: JsonObject): List<JsonObject> {
+        val current = existing.filter { turnId != null && it.text("turn_id") == turnId }
+        if (turnId.isNullOrBlank() || incoming.text("turn_id") != turnId || incoming.text("character_id").isBlank()) return current
+        return (current.filterNot { it.text("character_id") == incoming.text("character_id") } + incoming).takeLast(12)
     }
 }
 
