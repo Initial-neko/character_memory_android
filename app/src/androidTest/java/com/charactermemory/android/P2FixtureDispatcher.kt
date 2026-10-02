@@ -54,7 +54,7 @@ internal class P2FixtureDispatcher : Dispatcher() {
         return when (path) {
             "/health" -> json("{\"status\":\"ok\"}")
             "/v1/characters" -> json("""{"characters":[{"id":"rin","name":"Rin","identity":"摄影师","description":"Fixture character"},{"id":"lex","name":"Lex","identity":"工程师"}],"soft_limit":10,"active_limit":20,"active_total":2,"overflow_count":0}""")
-            "/v1/characters/summaries" -> json("""{"characters":[{"id":"rin","latest_message":{"id":1,"role":"assistant","content":"fixture opening"},"latest_assistant_message_id":1}]}""")
+            "/v1/characters/summaries" -> json("""{"characters":[{"id":"rin","latest_message":{"id":1,"role":"assistant","content":"fixture opening","preview":"fixture opening","event_time":"2026-10-02T10:00:00+08:00"},"latest_assistant_message_id":1}]}""")
             "/v1/groups" -> json("""{"groups":[{"id":"g1","name":"Fixture Group","status":"ACTIVE","member_ids":["rin","lex"],"members":[{"id":"rin","name":"Rin"},{"id":"lex","name":"Lex"}]}]}""")
             "/v1/stickers" -> json("""{"stickers":[]}""")
             "/v1/characters/rin/avatar", "/v1/characters/lex/avatar" -> json("""{"avatar_url":""}""")

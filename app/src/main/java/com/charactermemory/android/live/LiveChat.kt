@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -15,17 +16,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.charactermemory.android.data.*
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 
 @Composable
-internal fun LiveAvatar(name: String, path: String, model: LiveViewModel) {
-    Box(Modifier.size(48.dp).clip(CircleShape).background(LivePanel), contentAlignment = Alignment.Center) {
-        Text(name.take(1), color = LiveAccent)
-        if (path.isNotBlank()) AsyncImage(model.assetUrl(path), "$name 头像", modifier = Modifier.fillMaxSize())
+internal fun LiveAvatar(name: String, path: String, model: LiveViewModel, size: Dp = 48.dp) {
+    Box(Modifier.size(size).clip(CircleShape).background(Brush.linearGradient(listOf(Color(0xFF29436B), Color(0xFF293B65)))), contentAlignment = Alignment.Center) {
+        Text(name.take(1), color = LivePale, fontSize = if (size >= 48.dp) 21.sp else 14.sp)
+        if (path.isNotBlank()) AsyncImage(model.assetUrl(path), "$name 头像", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
     }
 }
 
@@ -34,9 +42,14 @@ internal fun LiveChat(state: LiveState, model: LiveViewModel) {
     val target = state.target ?: return
     var showStickers by rememberSaveable(target.id) { mutableStateOf(false) }
     var advanced by rememberSaveable(target.id) { mutableStateOf(false) }
+    var more by remember { mutableStateOf(false) }
+    var memberDetails by remember { mutableStateOf(false) }
+    var showTools by rememberSaveable(target.id) { mutableStateOf(false) }
     var conversationOverride by rememberSaveable(target.id, target.conversationId) { mutableStateOf(target.conversationId) }
     val list = rememberLazyListState()
     var lastCount by remember(target.id) { mutableIntStateOf(0) }
+    val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    LaunchedEffect(imeVisible) { if (imeVisible) { showStickers = false; showTools = false } }
     LaunchedEffect(state.messages.size) {
         if (state.messages.size > lastCount && (lastCount == 0 || list.layoutInfo.visibleItemsInfo.lastOrNull()?.index == lastCount)) {
             // The history/loading row occupies index 0 before the message items.
@@ -45,32 +58,46 @@ internal fun LiveChat(state: LiveState, model: LiveViewModel) {
         lastCount = state.messages.size
     }
     Column(Modifier.fillMaxSize().testTag("live-chat").padding(horizontal = 12.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(state.streamStatus, color = LiveMuted, modifier = Modifier.weight(1f).testTag("live-stream-status"))
-            TextButton(onClick = { model.loadHistory() }, modifier = Modifier.testTag("live-chat-refresh")) { Text("刷新历史") }
-            if (!target.group) TextButton(onClick = model::loadPersona, modifier = Modifier.testTag("live-details-open")) { Text("详情") }
-        }
-        Text(when (state.reaction) {
-            "queued" -> "已排队，等待人物"
-            "typing" -> "人物正在处理"
-            "superseded" -> "本轮已被新消息替代"
-            "error" -> "人物回复失败，原消息保留"
-            else -> "当前空闲；人物可以选择保持沉默"
-        }, color = LiveAccent, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("live-reaction-status"))
-        state.reactionError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("live-reaction-error")) }
-        if (target.group && state.memberProgress.isNotEmpty()) Text(state.memberProgress.joinToString(" · ") {
-            "${it.text("character_id")}：${if (it.flag("silent")) "已完成 / 沉默" else "已完成"}"
-        }, color = LiveMuted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("live-member-progress"))
-        if (!target.group) {
-            TextButton(onClick = { advanced = !advanced }, modifier = Modifier.testTag("live-conversation-options")) { Text("会话 ID 兼容设置") }
-            if (advanced) {
-                Text("历史按人物返回。此 ID 仅控制当前实时频道；如需兼容 Web，可手动填写 Web 的已知 ID，跨端同步仍待 Core 契约。",
-                    color = LiveMuted, style = MaterialTheme.typography.bodySmall)
-                OutlinedTextField(conversationOverride, { conversationOverride = it }, singleLine = true, label = { Text("Direct 会话 ID") },
-                    modifier = Modifier.fillMaxWidth().testTag("live-conversation-id"))
-                LiveAction("使用此 ID", "live-conversation-save", "send" !in state.busy) { model.overrideConversationId(conversationOverride) }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(state.streamStatus, color = LiveMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false).testTag("live-stream-status"))
+                Text(when (state.reaction) {
+                    "queued" -> "等待处理"
+                    "typing" -> "正在处理…"
+                    "superseded" -> "已转入新消息"
+                    "error" -> "回复失败"
+                    else -> "空闲"
+                }, color = if (state.reaction == "idle") LiveMuted else LiveAccent, fontSize = 11.sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("live-reaction-status"))
+            }
+            Box {
+                LiveIconAction(LiveSymbol.MORE, "更多聊天操作", "live-chat-more") { more = true }
+                DropdownMenu(more, onDismissRequest = { more = false }) {
+                    DropdownMenuItem(text = { Text("刷新历史") }, onClick = { more = false; model.loadHistory() }, modifier = Modifier.testTag("live-chat-refresh"))
+                    if (!target.group) {
+                        DropdownMenuItem(text = { Text("人物详情") }, onClick = { more = false; model.loadPersona() }, modifier = Modifier.testTag("live-details-open"))
+                        DropdownMenuItem(text = { Text("会话 ID 兼容设置") }, onClick = { more = false; advanced = true }, modifier = Modifier.testTag("live-conversation-options"))
+                    }
+                }
             }
         }
+        state.reactionError?.let { LiveFeedback(it, "live-reaction-error", true) }
+        if (target.group && state.memberProgress.isNotEmpty()) TextButton(onClick = { memberDetails = true }, modifier = Modifier.testTag("live-member-progress")) {
+            Text("本轮已完成 ${state.memberProgress.size}/${target.memberIds.size} 位成员", color = LiveMuted, fontSize = 11.sp)
+        }
+        if (memberDetails) AlertDialog(onDismissRequest = { memberDetails = false }, title = { Text("本轮成员进度") },
+            text = { Column(Modifier.verticalScroll(rememberScrollState())) {
+                state.memberProgress.forEach { Text("${it.text("character_id")}：${if (it.flag("silent")) "已完成 / 沉默" else "已完成"}") }
+            } }, confirmButton = { TextButton(onClick = { memberDetails = false }) { Text("关闭") } })
+        if (advanced) AlertDialog(onDismissRequest = { advanced = false }, title = { Text("Direct 会话 ID") },
+            text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("历史按人物返回。此 ID 控制当前实时频道；如需兼容 Web，可填写 Web 的已知 ID。跨端同步仍待 Core 契约。", color = LiveMuted)
+                OutlinedTextField(conversationOverride, { conversationOverride = it }, singleLine = true, label = { Text("会话 ID") },
+                    modifier = Modifier.fillMaxWidth().testTag("live-conversation-id"))
+            } }, confirmButton = { TextButton(onClick = { model.overrideConversationId(conversationOverride); advanced = false }, enabled = "send" !in state.busy,
+                modifier = Modifier.testTag("live-conversation-save")) { Text("使用此 ID") } },
+            dismissButton = { TextButton(onClick = { advanced = false }) { Text("取消") } })
         LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("live-messages"), state = list,
             verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 10.dp)) {
             item {
@@ -84,16 +111,7 @@ internal fun LiveChat(state: LiveState, model: LiveViewModel) {
                 val speakerName = if (target.group) state.groups.firstOrNull { it.text("id") == target.id }
                     ?.items("members")?.firstOrNull { it.text("id") == speakerId }?.text("name", speakerId)
                     ?: speakerId else target.name
-                Card(modifier = Modifier.fillMaxWidth().testTag("live-message-${message.text("id")}"),
-                    colors = CardDefaults.cardColors(containerColor = if (message.text("role") == "user") androidx.compose.ui.graphics.Color(0xFF1D2B47) else LivePanel)) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(if (message.text("role") == "user") "我 · 已保存" else message.text("actor_name", speakerName),
-                            style = MaterialTheme.typography.labelMedium, color = LiveAccent)
-                        if (message.text("content").isNotBlank()) Text(message.text("content"))
-                        message.objOrNull("sticker")?.let { LiveMedia(it, model, "live-message-sticker-${message.text("id")}") }
-                        message.objOrNull("image")?.let { LiveMedia(it, model, "live-message-image-${message.text("id")}") }
-                    }
-                }
+                LiveMessageBubble(message, message.text("actor_name", speakerName), if (target.group) speakerId else target.id, state, model)
             }
         }
         if (showStickers) {
@@ -108,15 +126,47 @@ internal fun LiveChat(state: LiveState, model: LiveViewModel) {
                 }
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = { showStickers = !showStickers; if (showStickers) model.loadStickers() }, modifier = Modifier.testTag("live-stickers-open")) { Text("表情") }
-            TextButton(onClick = { model.show(LivePage.IMAGE) }, modifier = Modifier.testTag("live-image-open")) { Text("生成图片") }
+        if (!imeVisible || showTools) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            LiveIconAction(LiveSymbol.STICKER, "表情", "live-stickers-open") { showStickers = !showStickers; if (showStickers) model.loadStickers() }
+            LiveIconAction(LiveSymbol.SPARKLE, "生成图片草稿", "live-image-open") { model.show(LivePage.IMAGE) }
         }
-        Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
-            OutlinedTextField(state.composeText, model::editText, label = { Text("消息") }, maxLines = 4,
+        Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Bottom) {
+            if (imeVisible && !showTools) LiveIconAction(LiveSymbol.TOOLS, "展开聊天工具", "live-chat-tools") { showTools = true }
+            OutlinedTextField(state.composeText, model::editText, placeholder = { Text("输入消息…", fontSize = 14.sp) }, maxLines = 4,
+                shape = RoundedCornerShape(17.dp), textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 23.sp),
                 modifier = Modifier.weight(1f).testTag("live-chat-input"))
-            LiveAction(if ("send" in state.busy) "发送中" else "发送", "live-chat-send",
+            LiveIconAction(LiveSymbol.SEND, if ("send" in state.busy) "正在发送" else "发送消息", "live-chat-send",
                 "send" !in state.busy && state.composeText.isNotBlank()) { model.send() }
+        }
+    }
+}
+
+@Composable
+private fun LiveMessageBubble(message: JsonObject, author: String, characterId: String, state: LiveState, model: LiveViewModel) {
+    val outbound = message.text("role") == "user"
+    val id = message.text("id")
+    BoxWithConstraints(Modifier.fillMaxWidth().testTag("live-message-$id")) {
+        val maxBubble = minOf(310.dp, maxWidth * 0.78f)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = if (outbound) Arrangement.End else Arrangement.Start,
+            verticalAlignment = Alignment.Top) {
+            if (!outbound) {
+                LiveAvatar(author, state.avatars[characterId].orEmpty(), model, 32.dp)
+                Spacer(Modifier.width(8.dp))
+            }
+            Column(Modifier.widthIn(max = maxBubble), horizontalAlignment = if (outbound) Alignment.End else Alignment.Start) {
+                if (!outbound) Text(author, color = LiveMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Card(Modifier.widthIn(max = maxBubble).padding(top = 4.dp).testTag("live-message-bubble-$id"),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = if (outbound) Color(0xFF2959A0) else Color(0xFF283447))) {
+                    Column(Modifier.padding(horizontal = 13.dp, vertical = 11.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (message.text("content").isNotBlank()) Text(message.text("content"), color = LivePale, fontSize = 15.sp, lineHeight = 23.sp)
+                        message.objOrNull("sticker")?.let { LiveMedia(it, model, "live-message-sticker-$id") }
+                        message.objOrNull("image")?.let { LiveMedia(it, model, "live-message-image-$id") }
+                    }
+                }
+                val time = LiveTime.short(message.text("event_time"))
+                if (time.isNotEmpty()) Text(time, color = LiveMuted, fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp))
+            }
         }
     }
 }

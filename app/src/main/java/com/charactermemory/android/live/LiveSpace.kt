@@ -4,15 +4,22 @@ import android.media.MediaPlayer
 import android.widget.MediaController
 import android.widget.VideoView
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -26,7 +33,10 @@ internal fun LiveSpace(state: LiveState, model: LiveViewModel) {
     LazyColumn(Modifier.fillMaxSize().testTag("live-space"), contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
-            LiveAction(if ("space" in state.busy) "加载中…" else "刷新动态", "live-space-refresh", "space" !in state.busy) { model.loadSpace() }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) { LiveSection("最新动态", if ("space" in state.busy) "加载中…" else "人物分享的日常") }
+                LiveIconAction(LiveSymbol.REFRESH, "刷新动态", "live-space-refresh", "space" !in state.busy) { model.loadSpace() }
+            }
             if (state.posts.isEmpty() && "space" !in state.busy) Text("暂无动态", color = LiveMuted)
         }
         items(state.posts, key = { it.text("id") }) { post -> LivePost(post, state, model) }
@@ -51,35 +61,57 @@ private fun LivePost(post: JsonObject, state: LiveState, model: LiveViewModel) {
             handledReceipt = receipt.id
         }
     }
-    Card(Modifier.fillMaxWidth().testTag("live-space-post-$id"), colors = CardDefaults.cardColors(containerColor = LivePanel)) {
+    LivePanelCard(Modifier.fillMaxWidth().testTag("live-space-post-$id")) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(post.objOrNull("author")?.text("name", post.text("character_id")) ?: post.text("character_id"), style = MaterialTheme.typography.titleMedium)
-            Text(post.text("created_at"), style = MaterialTheme.typography.bodySmall, color = LiveMuted)
-            Text(post.text("content"))
+            val author = post.objOrNull("author")
+            val authorId = post.text("character_id", author?.text("id").orEmpty())
+            val authorName = author?.text("name", authorId) ?: authorId
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                LiveAvatar(authorName, state.avatars[authorId].orEmpty(), model)
+                Column(Modifier.weight(1f)) {
+                    Text(authorName, color = LivePale, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val time = LiveTime.dateTime(post.text("created_at"))
+                    if (time.isNotEmpty()) Text(time, color = LiveMuted, fontSize = 11.sp)
+                }
+            }
+            Text(post.text("content"), color = LivePale, fontSize = 14.sp, lineHeight = 23.sp)
             post.items("media_items").forEachIndexed { index, media -> LiveMedia(media, model, "live-space-media-$id-$index") }
             if (post.items("media_items").isEmpty()) post.objOrNull("media")?.let { LiveMedia(it, model, "live-space-media-$id-0") }
-            Text("人物点赞 ${post.number("like_count")} · 评论 ${comments.size}", style = MaterialTheme.typography.bodySmall, color = LiveMuted)
-            TextButton(onClick = { showComments = !showComments }, modifier = Modifier.testTag("live-space-comments-toggle-$id")) {
-                Text(if (showComments) "收起评论" else "查看评论与回复")
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("♡ ${post.number("like_count")} 人物点赞", color = LivePurple, fontSize = 12.sp)
+                TextButton(onClick = { showComments = !showComments }, modifier = Modifier.testTag("live-space-comments-toggle-$id")) {
+                    Text(if (showComments) "收起评论" else "◌ ${comments.size} 条评论", color = LiveMuted, fontSize = 12.sp)
+                }
             }
             if (showComments) {
+                Column(Modifier.fillMaxWidth().background(Color(0xFF111B2C), RoundedCornerShape(12.dp)).padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 comments.forEach { item ->
                     Column(Modifier.testTag("live-space-reply-${item.text("id")}")) {
                         val replyId = item.text("reply_to_comment_id")
-                        Text("${item.objOrNull("author")?.text("name", "我") ?: "我"}${if (replyId.isNotBlank()) " ↳ #$replyId" else ""}：${item.text("content")}")
+                        val replyTarget = comments.firstOrNull { it.text("id") == replyId }
+                        val replyAuthor = replyTarget?.objOrNull("author")?.text("name")
+                        Text("${item.objOrNull("author")?.text("name", item.text("character_id")) ?: item.text("character_id")}${if (replyId.isNotBlank()) " 回复 ${replyAuthor?.takeIf { it.isNotBlank() } ?: "评论"}" else ""}：${item.text("content")}",
+                            color = LivePale, fontSize = 13.sp, lineHeight = 20.sp)
                         item.objOrNull("sticker")?.let { LiveMedia(it, model, "live-comment-sticker-${item.text("id")}") }
                         TextButton(onClick = { reply = item.number("id") }, modifier = Modifier.testTag("live-space-reply-to-${item.text("id")}")) { Text("回复") }
                     }
                 }
+                reply?.let { value ->
+                    val name = comments.firstOrNull { it.number("id") == value }?.objOrNull("author")?.text("name").orEmpty()
+                    TextButton(onClick = { reply = null }) { Text("回复${if (name.isNotBlank()) " $name" else "评论"} · 取消", color = LiveCyan, fontSize = 12.sp) }
+                }
+                OutlinedTextField(comment, { comment = it.take(1000) }, placeholder = { Text(if (reply == null) "写评论…" else "写回复…") },
+                    shape = RoundedCornerShape(15.dp), modifier = Modifier.fillMaxWidth().testTag("live-space-comment-$id"), maxLines = 4)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { model.refreshPost(id) }, enabled = "space-post-$id" !in state.busy,
+                        modifier = Modifier.weight(1f).testTag("live-space-post-refresh-$id")) { Text("刷新人物回复", fontSize = 12.sp) }
+                    LiveIconAction(LiveSymbol.SEND, "发送评论", "live-space-comment-send-$id", comment.isNotBlank() && "comment-$id" !in state.busy) {
+                        model.comment(id, comment, reply)
+                    }
+                }
+                }
             }
-            reply?.let { value -> TextButton(onClick = { reply = null }) { Text("回复 #$value · 点击取消") } }
-            OutlinedTextField(comment, { comment = it.take(1000) }, label = { Text(if (reply == null) "写评论" else "写回复") },
-                modifier = Modifier.fillMaxWidth().testTag("live-space-comment-$id"), maxLines = 4)
-            LiveAction("发送评论", "live-space-comment-send-$id", comment.isNotBlank() && "comment-$id" !in state.busy) {
-                model.comment(id, comment, reply)
-            }
-            TextButton(onClick = { model.refreshPost(id) }, enabled = "space-post-$id" !in state.busy,
-                modifier = Modifier.testTag("live-space-post-refresh-$id")) { Text("刷新人物回复") }
         }
     }
 }
