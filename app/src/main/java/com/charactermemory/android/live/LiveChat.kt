@@ -50,13 +50,16 @@ internal fun LiveChat(state: LiveState, model: LiveViewModel) {
             TextButton(onClick = { model.loadHistory() }, modifier = Modifier.testTag("live-chat-refresh")) { Text("刷新历史") }
             if (!target.group) TextButton(onClick = model::loadPersona, modifier = Modifier.testTag("live-details-open")) { Text("详情") }
         }
-        Text(when (state.reaction) {
-            "queued" -> "已排队，等待人物"
-            "typing" -> "人物正在处理"
-            "superseded" -> "本轮已被新消息替代"
-            "error" -> "人物回复失败，原消息保留"
-            else -> "当前空闲；人物可以选择保持沉默"
-        }, color = LiveAccent, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("live-reaction-status"))
+        // Do not show protocol/debug states as permanent chat copy when the character is idle.
+        if (state.reaction in setOf("queued", "typing", "superseded", "error")) {
+            Text(when (state.reaction) {
+                "queued" -> "已收到消息，等待人物"
+                "typing" -> "人物正在回复…"
+                "superseded" -> "本轮已被新消息替代"
+                else -> "人物回复失败；你的消息已保存"
+            }, color = LiveAccent, style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.testTag("live-reaction-status"))
+        }
         state.reactionError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("live-reaction-error")) }
         if (target.group && state.memberProgress.isNotEmpty()) Text(state.memberProgress.joinToString(" · ") {
             "${it.text("character_id")}：${if (it.flag("silent")) "已完成 / 沉默" else "已完成"}"
@@ -84,14 +87,35 @@ internal fun LiveChat(state: LiveState, model: LiveViewModel) {
                 val speakerName = if (target.group) state.groups.firstOrNull { it.text("id") == target.id }
                     ?.items("members")?.firstOrNull { it.text("id") == speakerId }?.text("name", speakerId)
                     ?: speakerId else target.name
-                Card(modifier = Modifier.fillMaxWidth().testTag("live-message-${message.text("id")}"),
-                    colors = CardDefaults.cardColors(containerColor = if (message.text("role") == "user") androidx.compose.ui.graphics.Color(0xFF1D2B47) else LivePanel)) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(if (message.text("role") == "user") "我 · 已保存" else message.text("actor_name", speakerName),
-                            style = MaterialTheme.typography.labelMedium, color = LiveAccent)
-                        if (message.text("content").isNotBlank()) Text(message.text("content"))
-                        message.objOrNull("sticker")?.let { LiveMedia(it, model, "live-message-sticker-${message.text("id")}") }
-                        message.objOrNull("image")?.let { LiveMedia(it, model, "live-message-image-${message.text("id")}") }
+                val fromUser = message.text("role") == "user"
+                // The original mock storyboard uses separate right/left bubbles, not full-width cards.
+                // Reserve room for the character avatar even on 320dp/narrow devices.
+                BoxWithConstraints(Modifier.fillMaxWidth().testTag("live-message-${message.text("id")}")) {
+                    val maxBubble = (maxWidth - if (fromUser) 24.dp else 80.dp).coerceAtMost(360.dp)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start,
+                        verticalAlignment = Alignment.Bottom) {
+                        if (!fromUser) {
+                            LiveAvatar(speakerName, state.avatars[speakerId.ifBlank { target.id }].orEmpty(), model)
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        Card(modifier = Modifier.widthIn(max = maxBubble)
+                            .testTag("live-message-bubble-${if (fromUser) "user" else "character"}-${message.text("id")}"),
+                            colors = CardDefaults.cardColors(containerColor =
+                                if (fromUser) androidx.compose.ui.graphics.Color(0xFF234D9D) else LivePanel)) {
+                            Column(Modifier.padding(horizontal = 13.dp, vertical = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                Text(if (fromUser) "我 · 已保存" else message.text("actor_name", speakerName),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (fromUser) androidx.compose.ui.graphics.Color(0xFFD8EAFF) else LiveAccent)
+                                if (message.text("content").isNotBlank()) Text(message.text("content"))
+                                message.objOrNull("sticker")?.let { LiveMedia(it, model, "live-message-sticker-${message.text("id")}") }
+                                message.objOrNull("image")?.let { LiveMedia(it, model, "live-message-image-${message.text("id")}") }
+                                message.text("event_time").takeIf { it.length >= 16 }?.let { timestamp ->
+                                    Text(timestamp.substring(11, 16), style = MaterialTheme.typography.labelSmall,
+                                        color = LiveMuted)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -108,15 +132,22 @@ internal fun LiveChat(state: LiveState, model: LiveViewModel) {
                 }
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = { showStickers = !showStickers; if (showStickers) model.loadStickers() }, modifier = Modifier.testTag("live-stickers-open")) { Text("表情") }
-            TextButton(onClick = { model.show(LivePage.IMAGE) }, modifier = Modifier.testTag("live-image-open")) { Text("生成图片") }
-        }
-        Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
-            OutlinedTextField(state.composeText, model::editText, label = { Text("消息") }, maxLines = 4,
+        Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.Bottom) {
+            TextButton(onClick = { showStickers = !showStickers; if (showStickers) model.loadStickers() },
+                contentPadding = PaddingValues(horizontal = 5.dp, vertical = 9.dp),
+                modifier = Modifier.testTag("live-stickers-open")) { Text("☺") }
+            TextButton(onClick = { model.show(LivePage.IMAGE) },
+                contentPadding = PaddingValues(horizontal = 5.dp, vertical = 9.dp),
+                modifier = Modifier.testTag("live-image-open")) { Text("✦") }
+            OutlinedTextField(state.composeText, model::editText, placeholder = { Text("输入消息…") }, maxLines = 4,
                 modifier = Modifier.weight(1f).testTag("live-chat-input"))
-            LiveAction(if ("send" in state.busy) "发送中" else "发送", "live-chat-send",
-                "send" !in state.busy && state.composeText.isNotBlank()) { model.send() }
+            Button(onClick = { model.send() }, enabled = "send" !in state.busy && state.composeText.isNotBlank(),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFF397CFF)),
+                modifier = Modifier.testTag("live-chat-send")) {
+                Text(if ("send" in state.busy) "…" else "发送")
+            }
         }
     }
 }
