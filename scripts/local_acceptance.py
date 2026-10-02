@@ -13,13 +13,14 @@ import json
 import os
 from pathlib import Path
 import re
-import shutil
+import struct
 import subprocess
 import sys
 import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import ProxyHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
+import zlib
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -138,6 +139,36 @@ def expected_screens():
     return SCREEN_NAMES if "p1-12-chat-ime.png" in src else SCREEN_NAMES[:9]
 
 
+def valid_screenshot_png(data):
+    """Validate actual PNG chunks and realistic viewport size, not file suffix."""
+    if not data.startswith(bytes.fromhex("89504e470d0a1a0a")) or len(data) > 20 * 1024 * 1024:
+        return False
+    offset = 8
+    have_idat = have_iend = False
+    width = height = 0
+    while offset + 12 <= len(data):
+        length = struct.unpack_from(">I", data, offset)[0]
+        kind = data[offset + 4:offset + 8]
+        end = offset + 12 + length
+        if end > len(data):
+            return False
+        chunk = data[offset + 8:offset + 8 + length]
+        expected_crc = struct.unpack_from(">I", data, offset + 8 + length)[0]
+        if zlib.crc32(kind + chunk) & 0xFFFFFFFF != expected_crc:
+            return False
+        if kind == b"IHDR":
+            if width or height or length != 13:
+                return False
+            width, height = struct.unpack_from(">II", chunk)
+        if kind == b"IDAT":
+            have_idat = True
+        if kind == b"IEND":
+            have_iend = True
+            return have_idat and have_iend and width >= 320 and height >= 400 and end == len(data)
+        offset = end
+    return False
+
+
 def audit_screens(folder, expected, not_before=None):
     found = {}
     stale = []
@@ -148,14 +179,15 @@ def audit_screens(folder, expected, not_before=None):
         if not_before is not None and path.stat().st_mtime + 3 < not_before:
             stale.append(name)
         data = path.read_bytes()
-        if not data.startswith(bytes.fromhex("89504e470d0a1a0a")) or len(data) < 33:
+        if not valid_screenshot_png(data):
             return {"status": "TEST_DEFECT", "reason": "Non-PNG or truncated screenshot",
                     "filename": name}
         found[name] = hashlib.sha256(data).hexdigest()
     missing = [name for name in expected if name not in found]
-    return {"status": "TEST_DEFECT" if stale else ("FAIL" if missing else "PASS"),
+    duplicate_names = sorted(p.name for p in folder.glob("p1-*.png") if p.name not in expected)
+    return {"status": "TEST_DEFECT" if stale or duplicate_names else ("FAIL" if missing else "PASS"),
             "expected": len(expected), "found": len(found), "missing": missing,
-            "stale": stale, "sha256": found}
+            "stale": stale, "unexpected_screenshots": duplicate_names, "sha256": found}
 
 
 def result_state(steps):
@@ -243,7 +275,8 @@ def run_p1(output, expected_sha):
             # acceptance folder; do not delete historical MediaStore files.
             serial = pre["emulator_serial"]
             screenshots = output / "screenshots"
-            run_command(["adb", "-s", serial, "pull",
+            screenshots.mkdir(parents=True, exist_ok=True)
+            pull_exit = run_command(["adb", "-s", serial, "pull",
                          "/sdcard/Pictures/CharacterMemoryP1", str(screenshots)],
                         output / "logs/screenshot-pull.log", timeout=90)
             # adb pull creates <output>/screenshots/CharacterMemoryP1/.
@@ -251,8 +284,8 @@ def run_p1(output, expected_sha):
             screens = audit_screens(actual, expected_screens(), emu_start)
             steps["G1-emulator-and-screens"] = {
                 "status": "PASS" if rc == 0 and ui["status"] == "PASS"
-                          and screens["status"] == "PASS" else "FAIL",
-                "gradle_exit": rc, "ui": ui, "screens": screens,
+                          and screens["status"] == "PASS" and pull_exit == 0 else "FAIL",
+                "gradle_exit": rc, "screenshot_pull_exit": pull_exit, "ui": ui, "screens": screens,
                 "log": "logs/emulator.log",
                 "note": "Screen evidence uses file freshness; existing screenshots cannot silently satisfy this run.",
             }
@@ -276,8 +309,13 @@ def local_only_url(base):
             and parts.path in {"", "/"})
 
 
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def request_json(base, path):
-    opener = build_opener(ProxyHandler({}))
+    opener = build_opener(ProxyHandler({}), NoRedirect())
     request = Request(base.rstrip("/") + path,
                       headers={"Accept": "application/json",
                                "User-Agent": "CharacterMemoryAcceptance/1 (read-only)"})
