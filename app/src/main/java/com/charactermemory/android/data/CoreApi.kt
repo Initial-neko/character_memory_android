@@ -47,6 +47,21 @@ class CoreApi(val config: ServerConfig, client: OkHttpClient = OkHttpClient()) {
     suspend fun post(path: String, body: JsonObject): JsonObject = write("POST", path, body)
     suspend fun patch(path: String, body: JsonObject): JsonObject = write("PATCH", path, body)
 
+    /** Batch ASR on Media Runtime, never on Core. WAV is one-shot and must not be replayed. */
+    suspend fun transcribeWav(wav: ByteArray): String {
+        require(wav.size in 45..(4 * 1024 * 1024)) { "WAV 音频大小无效" }
+        val audio = wav.toRequestBody("audio/wav".toMediaType())
+        val oneShot = object : RequestBody() {
+            override fun contentType() = audio.contentType()
+            override fun contentLength() = audio.contentLength()
+            override fun writeTo(sink: BufferedSink) = audio.writeTo(sink)
+            override fun isOneShot() = true
+        }
+        val response = execute(Request.Builder().url(url("/v1/asr", media = true))
+            .header("X-ASR-Source", "dictation").post(oneShot).build())
+        return response.text("text").trim().ifBlank { throw IOException("未识别到可用文本") }
+    }
+
     private suspend fun write(method: String, path: String, body: JsonObject): JsonObject {
         val jsonBody = body.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
         // retryOnConnectionFailure(false) does not suppress HTTP 503 follow-ups.
