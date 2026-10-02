@@ -39,6 +39,7 @@ data class LiveState(
     val imagePrompt: String = "", val imageDraft: JsonObject? = null,
     val stickers: List<JsonObject> = emptyList(),
     val composeText: String = "", val dictating: Boolean = false, val dictationStatus: String = "",
+    val speakingMessageId: String? = null, val speechStatus: String = "",
     val characterPrompt: String = "", val ensemblePrompt: String = "",
     val imageInstruction: String = "", val imageCharacterId: String = "", val imagePurpose: String = "SCENE",
     val imageUseAvatar: Boolean = false
