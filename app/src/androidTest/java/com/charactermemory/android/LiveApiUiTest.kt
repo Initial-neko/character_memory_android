@@ -32,6 +32,7 @@ import com.charactermemory.android.data.text
 import com.charactermemory.android.live.LiveApp
 import com.charactermemory.android.live.LivePage
 import com.charactermemory.android.live.LiveViewModel
+import com.charactermemory.android.live.refreshPost
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
