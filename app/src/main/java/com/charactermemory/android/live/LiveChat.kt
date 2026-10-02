@@ -122,6 +122,17 @@ internal fun LiveChat(state: LiveState, model: LiveViewModel) {
                                 if (message.text("content").isNotBlank()) Text(message.text("content"))
                                 message.objOrNull("sticker")?.let { LiveMedia(it, model, "live-message-sticker-${message.text("id")}") }
                                 message.objOrNull("image")?.let { LiveMedia(it, model, "live-message-image-${message.text("id")}") }
+                                if (!fromUser && message.text("content").isNotBlank()) {
+                                    TextButton(onClick = {
+                                        model.toggleSpeech(message.text("id"), message.text("content"), speakerId)
+                                    }, modifier = Modifier.testTag("live-message-speak-${message.text("id")}"),
+                                        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 2.dp)) {
+                                        Text(if (state.speakingMessageId == message.text("id")) "■ 停止朗读" else "▶ 朗读",
+                                            style = MaterialTheme.typography.labelSmall)
+                                    }
+                                    if (state.speakingMessageId == message.text("id") && state.speechStatus.isNotBlank())
+                                        Text(state.speechStatus, color = LiveMuted, style = MaterialTheme.typography.labelSmall)
+                                }
                                 message.text("event_time").takeIf { it.length >= 16 }?.let { timestamp ->
                                     Text(timestamp.substring(11, 16), style = MaterialTheme.typography.labelSmall,
                                         color = LiveMuted)
