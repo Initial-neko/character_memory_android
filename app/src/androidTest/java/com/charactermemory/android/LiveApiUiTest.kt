@@ -644,7 +644,9 @@ class LiveApiUiTest {
                 model.state.value.spaceNotifications.isNotEmpty()
         }
         assertTrue(dispatcher.reads.any { it == "/v1/space/notifications?unread_only=true&limit=50" })
-        compose.onNodeWithTag("live-space-unread-badge").performScrollTo().assertIsDisplayed().assertTextContains("1", substring = true)
+        // NavigationBar merges descendant semantics; the fixed bottom badge is not scrollable.
+        compose.onNodeWithTag("live-space-unread-badge", useUnmergedTree = true)
+            .assertIsDisplayed().assertTextContains("1", substring = true)
         tap("live-space-notification-7", true)
         compose.waitUntil(10_000) { dispatcher.notificationRead.get() && model.state.value.spaceUnreadCount == 0 }
         assertEquals("1", model.state.value.focusedSpacePostId)
