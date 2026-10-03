@@ -22,6 +22,13 @@ P2_SCREENS = (
     "p2-01-settings.png", "p2-02-roster.png", "p2-03-direct-chat.png",
     "p2-04-chat-ime.png", "p2-05-space.png", "p2-06-character-draft.png",
     "p2-07-ensemble-preview.png", "p2-08-image-draft.png", "p2-09-group-chat.png",
+    "p2-10-usage.png", "p2-11-sticker-packs.png", "p2-12-space-mentions.png",
+    "p2-13-asr-draft.png",
+    "p2-14-voice-states.png", "p2-15-voice-playback-error.png", "p2-16-tts-playback.png",
+    "p2-17-call-listening.png", "p2-18-call-speaking.png",
+    "p2-19-visual-controls.png",
+    "p2-20-media-routing-error.png",
+    "p2-21-composer-tools.png",
 )
 
 

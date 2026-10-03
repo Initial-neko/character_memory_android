@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -38,7 +39,7 @@ internal val LivePurple = Color(0xFFB09CFF)
 internal val LiveCyan = Color(0xFF76D4E9)
 internal val LiveBorder = Color(0xFF263956)
 
-internal enum class LiveSymbol { BACK, CHAT, SPACE, SETTINGS, PERSON, GROUP, SPARKLE, REFRESH, MORE, SEND, STICKER, TOOLS }
+internal enum class LiveSymbol { BACK, CHAT, SPACE, SETTINGS, PERSON, GROUP, SPARKLE, REFRESH, MORE, SEND, STICKER, TOOLS, MIC, PHONE, KEYBOARD, PLAY, STOP }
 
 /** Small native vector drawings avoid font-dependent symbol sizing and extra dependencies. */
 @Composable
@@ -50,6 +51,11 @@ internal fun LiveGlyph(symbol: LiveSymbol, modifier: Modifier = Modifier, tint: 
         fun line(x: Float, y: Float, x2: Float, y2: Float) = drawLine(tint, point(x, y), point(x2, y2), strokeWidth = 1.7f * unit)
         fun circle(x: Float, y: Float, radius: Float) = drawCircle(tint, radius * unit, point(x, y), style = stroke)
         when (symbol) {
+            LiveSymbol.MIC -> { drawRoundRect(tint, point(9f, 3f), Size(6f * unit, 12f * unit), androidx.compose.ui.geometry.CornerRadius(3f * unit), style = stroke); drawArc(tint, 0f, 180f, false, point(6f, 8f), Size(12f * unit, 10f * unit), style = stroke); line(12f, 18f, 12f, 22f); line(8f, 22f, 16f, 22f) }
+            LiveSymbol.PHONE -> { val path = Path().apply { moveTo(5f * unit, 3f * unit); lineTo(9f * unit, 7f * unit); lineTo(7f * unit, 10f * unit); quadraticBezierTo(10f * unit, 15f * unit, 15f * unit, 17f * unit); lineTo(18f * unit, 15f * unit); lineTo(22f * unit, 19f * unit); quadraticBezierTo(19f * unit, 25f * unit, 10f * unit, 18f * unit); quadraticBezierTo(0f * unit, 10f * unit, 5f * unit, 3f * unit) }; drawPath(path, tint, style = stroke) }
+            LiveSymbol.KEYBOARD -> { drawRoundRect(tint, point(2f, 5f), Size(20f * unit, 14f * unit), androidx.compose.ui.geometry.CornerRadius(2f * unit), style = stroke); listOf(8f, 12f).forEach { y -> listOf(6f, 10f, 14f, 18f).forEach { x -> drawCircle(tint, unit, point(x, y)) } }; line(7f, 16f, 17f, 16f) }
+            LiveSymbol.PLAY -> { val path = Path().apply { moveTo(8f * unit, 4f * unit); lineTo(20f * unit, 12f * unit); lineTo(8f * unit, 20f * unit); close() }; drawPath(path, tint) }
+            LiveSymbol.STOP -> drawRoundRect(tint, point(6f, 6f), Size(12f * unit, 12f * unit), androidx.compose.ui.geometry.CornerRadius(2f * unit))
             LiveSymbol.BACK -> { line(15f, 5f, 8f, 12f); line(8f, 12f, 15f, 19f) }
             LiveSymbol.MORE -> listOf(5f, 12f, 19f).forEach { drawCircle(tint, 1.6f * unit, point(it, 12f)) }
             LiveSymbol.TOOLS -> { line(5f, 12f, 19f, 12f); line(12f, 5f, 12f, 19f) }
@@ -81,6 +87,20 @@ internal fun LiveGlyph(symbol: LiveSymbol, modifier: Modifier = Modifier, tint: 
 internal fun LiveIconAction(symbol: LiveSymbol, label: String, tag: String, enabled: Boolean = true, onClick: () -> Unit) {
     IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(48.dp).testTag(tag).semantics { contentDescription = label }) {
         LiveGlyph(symbol, tint = if (enabled) LiveAccent else LiveMuted.copy(alpha = 0.4f))
+    }
+}
+
+@Composable
+internal fun LivePlaybackAction(label: String, status: String, tag: String, enabled: Boolean, onClick: () -> Unit) {
+    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(48.dp).testTag(tag).semantics {
+        contentDescription = label
+        stateDescription = status
+    }) {
+        when {
+            status.contains("加载") || status.contains("合成") -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            status.contains("失败") || status.contains("重试") -> LiveGlyph(LiveSymbol.REFRESH, tint = MaterialTheme.colorScheme.error)
+            else -> LiveGlyph(if (status == "停止") LiveSymbol.STOP else LiveSymbol.PLAY, tint = if (enabled) LiveAccent else LiveMuted)
+        }
     }
 }
 

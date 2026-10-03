@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.charactermemory.android.data.*
+import com.charactermemory.android.audio.*
 import com.google.gson.JsonObject
 import java.io.Closeable
 import java.net.URLEncoder
@@ -19,7 +20,10 @@ class LiveViewModel(
     context: Context,
     private val apiFactory: (ServerConfig) -> CoreApi = { CoreApi(it) },
     initialConfig: ServerConfig? = null,
-    preferencesName: String = "live-core-v1"
+    preferencesName: String = "live-core-v1",
+    private val mediaApiFactory: (ServerConfig) -> MediaApi = { MediaApi(it) },
+    recorderFactory: () -> VoiceRecorderPort = { AndroidVoiceRecorder() },
+    private val callRecorderFactory: () -> VoiceRecorderPort = { AndroidVoiceRecorder(automaticSegment = true) }
 ) : ViewModel() {
     private val preferences = context.applicationContext.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
     private val savedConfig = runCatching {
@@ -32,21 +36,121 @@ class LiveViewModel(
     internal var api: CoreApi = apiFactory(mutable.value.config)
         private set
     private val fence = GenerationFence()
+    internal val captureGeneration get() = fence.current
+    private var screenEpoch = 0L
+    internal val screenCaptureGeneration get() = screenEpoch
+    fun sendCameraFrame(generation: Long, jpeg: ByteArray, question: String) {
+        val target = mutable.value.target ?: return
+        if (generation != fence.current || mutable.value.page != LivePage.CHAT || call.state.value.active) return
+        val text = question.trim()
+        if (text.isEmpty() || text.length > 12_000) return
+        val frame = com.charactermemory.android.screen.ScreenVisualPayload.frame(jpeg, "CAMERA")
+        operation("visual", write = true) { client ->
+            val body = jsonObject("message" to text, "visual_frames" to listOf(frame))
+            val path = if (target.group) "/v1/visual/groups/${target.id}/messages" else {
+                body.addProperty("character_id", target.id); body.addProperty("conversation_id", target.conversationId)
+                "/v1/visual/direct/messages"
+            }
+            val result = client.post(path, body)
+            check(result.flag("accepted")) { "Core 未返回摄像帧接收凭据" }
+            update { it.copy(notice = "摄像帧已发送，等待角色回复。") }
+            loadHistory()
+        }
+    }
     private var session = SupervisorJob(viewModelScope.coroutineContext[Job])
     private var stream: Closeable? = null
     private var reconnect: Job? = null
+    private var spaceNotificationPoll: Job? = null
     private var lastEventId: String? = null
     private var reconnectAttempt = 0
     private var streamOpenedAt = 0L
     private var active = true
+    val voice = VoiceCoordinator(
+        scope = viewModelScope, dispatcher = Dispatchers.IO, mainDispatcher = Dispatchers.Main.immediate,
+        contextProvider = { voiceContext().let { it.copy(isChatPage = it.isChatPage && call.state.value.phase == "idle") } },
+        recorderFactory = recorderFactory,
+        transcribePcm = { error("Missing bound Media client") },
+        transcribeFactory = {
+            val client = mediaApiFactory(state.value.config)
+            val transcribe: suspend (ByteArray) -> String = { pcm -> client.transcribe(Pcm16Wav.encode(pcm)).text("text") }
+            transcribe
+        },
+        stopPlayback = { LiveAudioPlayback.stopAll() }
+    )
+    val call = VoiceCallCoordinator(viewModelScope, { voiceContext() }, { createCallPort() })
+    fun requestCall(): Long? {
+        if (voice.state.value.phase !in setOf(VoiceCoordinatorPhase.IDLE, VoiceCoordinatorPhase.ERROR) ||
+            state.value.streamStatus != "已连接" || "send" in state.value.busy) return null
+        LiveAudioPlayback.stopAll()
+        return call.requestStart()
+    }
+    private fun createCallPort(): VoiceCallPort {
+        val target = requireNotNull(state.value.target)
+        val client = api
+        val media = mediaApiFactory(state.value.config)
+        return object : VoiceCallPort {
+            override fun recorder() = callRecorderFactory()
+            override suspend fun transcribe(pcm: ByteArray) = media.transcribe(Pcm16Wav.encode(pcm), source = "call").text("text")
+            override suspend fun send(text: String): String {
+                val body = jsonObject("message" to text)
+                if (!target.group) { body.addProperty("character_id", target.id); body.addProperty("conversation_id", target.conversationId) }
+                val receipt = client.post(if (target.group) "/v1/groups/${pathId(target.id)}/messages" else "/v1/chat/messages", body)
+                currentCoroutineContext().ensureActive()
+                val message = receipt.objOrNull("message")
+                check(receipt.flag("accepted") && message != null) { "服务器未返回接收凭据" }
+                update { it.copy(messages = ConversationProjection.merge(it.messages, listOf(message)),
+                    groupTurnId = if (target.group) receipt.text("turn_id") else it.groupTurnId) }
+                return if (target.group) receipt.text("turn_id") else message.text("id")
+            }
+            override suspend fun speak(item: CallEffect.Speak) {
+                val audio = client.synthesizeSpeech(item.text, voice = item.characterId)
+                val file = java.io.File(appContext.cacheDir, "call-${UUID.randomUUID()}.${if (audio.mimeType in setOf("audio/mpeg", "audio/mp3")) "mp3" else "wav"}")
+                try {
+                    withContext(Dispatchers.IO) { file.writeBytes(audio.bytes) }
+                    withTimeout(60000) { LiveAudioPlayback.playCall("call-${item.id}", file.absolutePath) }
+                } finally { file.delete() }
+            }
+            override fun stopPlayback() = LiveAudioPlayback.stopAll()
+        }
+    }
+    private val appContext = context.applicationContext
+    private fun voiceContext(): VoiceContextSnapshot {
+        val current = state.value
+        val target = current.target
+        return VoiceContextSnapshot(fence.current, if (target?.group == true) VoiceTargetScope.GROUP else VoiceTargetScope.DIRECT,
+            target?.id.orEmpty(), target?.conversationId.orEmpty(), current.page == LivePage.CHAT, active)
+    }
+    fun useVoiceDraft(ticket: VoiceTaskTicket) {
+        when (val result = voice.useDraft(ticket, state.value.composeText)) {
+            is DraftAppendResult.Appended -> editText(result.text)
+            is DraftAppendResult.TooLong -> update { it.copy(error = "加入后超过消息长度上限；请先缩短文字。转写草稿已保留。") }
+            DraftAppendResult.Unavailable -> Unit
+        }
+    }
     private var activeWrites = 0
     private var historyLoading = false
     private var historyPaged = false
+    private val conversationCache = ConversationSnapshotCache()
+    private val refreshWindow = RefreshWindow(60_000L, { android.os.SystemClock.elapsedRealtime() })
+    private var usageReturnPage = LivePage.SETTINGS
     private var pendingMemberProgress: List<JsonObject> = emptyList()
 
     init {
-        if (initialConfig != null) preferences.edit().putString("core", initialConfig.coreUrl).putString("media", initialConfig.mediaUrl).apply()
-        refresh(); checkHealth()
+        LiveAudioPlayback.initialize(context)
+        viewModelScope.launch {
+            voice.state.collect { value ->
+                LiveAudioPlayback.blocked = call.state.value.phase != "idle" || value.phase !in setOf(VoiceCoordinatorPhase.IDLE, VoiceCoordinatorPhase.ERROR, VoiceCoordinatorPhase.DRAFT)
+            }
+        }
+        viewModelScope.launch {
+            call.state.collect { value ->
+                LiveAudioPlayback.blocked = value.phase != "idle" || voice.state.value.phase !in setOf(VoiceCoordinatorPhase.IDLE, VoiceCoordinatorPhase.ERROR, VoiceCoordinatorPhase.DRAFT)
+            }
+        }
+        // Persist normalized legacy routing, so upgrades do not keep sending Media requests to Core.
+        val resolvedConfig = mutable.value.config
+        if (resolvedConfig.coreUrl.isNotBlank()) preferences.edit().putString("core", resolvedConfig.coreUrl).putString("media", resolvedConfig.mediaUrl).apply()
+        refresh(); loadStickers(); checkHealth(); loadSpaceNotifications(); startSpaceNotificationPolling()
     }
 
     internal fun update(transform: (LiveState) -> LiveState) = mutable.update(transform)
@@ -60,7 +164,13 @@ class LiveViewModel(
         it.copy(imageCharacterId = character, imagePurpose = purpose, imageUseAvatar = avatar)
     }
 
-    private fun cancelSession(reason: String? = null) {
+    private fun cancelSession(reason: String? = null, stopCapture: Boolean = true) {
+        cacheConversation()
+        refreshWindow.cancelInFlight()
+        if (stopCapture) { screenEpoch++; com.charactermemory.android.screen.ScreenShareService.stop(appContext) }
+        call.end()
+        voice.invalidate()
+        LiveAudioPlayback.stopAll()
         fence.advance()
         stream?.close(); stream = null
         reconnect?.cancel(); reconnect = null
@@ -117,14 +227,17 @@ class LiveViewModel(
             update { it.copy(error = error.message ?: "服务器地址无效") }; return
         }
         cancelSession()
+        clearLoadingCaches()
         preferences.edit().putString("core", config.coreUrl).putString("media", config.mediaUrl).apply()
         api = apiFactory(config)
         lastEventId = null
         update { LiveState(config, page = LivePage.SETTINGS, notice = "配置已保存在此手机。") }
-        refresh(); checkHealth()
+        refresh(); loadStickers(); checkHealth(); loadSpaceNotifications(); startSpaceNotificationPolling()
     }
     fun resetConfig() {
+        spaceNotificationPoll?.cancel(); spaceNotificationPoll = null
         cancelSession(); preferences.edit().remove("core").remove("media").apply()
+        clearLoadingCaches()
         val config = ServerConfig("", "")
         api = apiFactory(config); lastEventId = null
         update { LiveState(config, page = LivePage.SETTINGS, notice = "服务器配置已清除。") }
@@ -135,7 +248,10 @@ class LiveViewModel(
         listOf(false, true).forEach { media ->
             operation(if (media) "media-health" else "core-health") { client ->
                 update { if (media) it.copy(mediaHealth = "检查中") else it.copy(coreHealth = "检查中") }
-                val result = try { client.get("/health", media = media); "可连接" }
+                val result = try {
+                    val health = client.get("/health", media = media)
+                    if (media) ServiceHealth.media(health, client.get("/openapi.json", media = true)) else "可连接"
+                }
                 catch (cancelled: CancellationException) { throw cancelled }
                 catch (error: Exception) { "不可连接：${error.message ?: "请求失败"}" }
                 currentCoroutineContext().ensureActive()
@@ -144,27 +260,68 @@ class LiveViewModel(
         }
     }
 
-    fun refresh() {
+    private fun clearLoadingCaches() {
+        conversationCache.clear()
+        refreshWindow.clear()
+    }
+
+    private fun conversationKey(target: ChatTarget): ConversationCacheKey = mutable.value.config.let {
+        ConversationCacheKey(it.coreUrl, it.mediaUrl, target.group, target.id, target.conversationId)
+    }
+
+    private fun cacheConversation() {
+        val current = mutable.value
+        val target = current.target ?: return
+        conversationCache.put(conversationKey(target), current.messages, current.historyCursor, historyPaged)
+    }
+
+    private fun cachedRead(key: String, force: Boolean = false, block: suspend (CoreApi) -> Unit) {
+        if (!active || mutable.value.config.coreUrl.isBlank() || key in mutable.value.busy) return
+        val ticket = refreshWindow.begin(key, force) ?: return
+        val generation = fence.current
+        operation(key) { client ->
+            var success = false
+            try {
+                block(client)
+                currentCoroutineContext().ensureActive()
+                success = fence.accepts(generation)
+            } finally {
+                refreshWindow.finish(ticket, success)
+            }
+        }
+    }
+
+    /** Explicit refresh remains forced; routine navigation reuses successful short-lived reads. */
+    fun refresh() = refresh(force = true)
+    fun refresh(force: Boolean) {
         if (mutable.value.config.coreUrl.isBlank()) return
-        operation("roster") { client ->
+        // A navigation cancellation may have stopped avatars after the roster succeeded.
+        // Retry those unfinished reads even while the roster itself is still fresh.
+        if (!force) refreshAvatars(mutable.value.characters, force = false)
+        cachedRead("roster", force) { client ->
             val characters = client.get("/v1/characters").items("characters")
             currentCoroutineContext().ensureActive()
             update { it.copy(characters = characters) }
-            characters.forEach { profile ->
-                val id = profile.text("id")
-                operation("avatar-$id") { avatarClient ->
-                    val avatar = avatarClient.get("/v1/characters/${pathId(id)}/avatar").text("avatar_url")
-                    currentCoroutineContext().ensureActive(); update { it.copy(avatars = it.avatars + (id to avatar)) }
-                }
-            }
+            refreshAvatars(characters, force)
         }
-        operation("summaries") { client ->
+        cachedRead("summaries", force) { client ->
             val rows = client.get("/v1/characters/summaries").items("characters")
             currentCoroutineContext().ensureActive(); update { it.copy(summaries = rows.associateBy { row -> row.text("id") }) }
         }
-        operation("groups") { client ->
+        cachedRead("groups", force) { client ->
             val groups = client.get("/v1/groups").items("groups")
             currentCoroutineContext().ensureActive(); update { it.copy(groups = groups) }
+        }
+    }
+
+    private fun refreshAvatars(characters: List<JsonObject>, force: Boolean) {
+        characters.forEach { profile ->
+            val id = profile.text("id")
+            cachedRead("avatar-$id", force) { client ->
+                val avatar = client.get("/v1/characters/${pathId(id)}/avatar").text("avatar_url")
+                currentCoroutineContext().ensureActive()
+                update { it.copy(avatars = it.avatars + (id to avatar)) }
+            }
         }
     }
 
@@ -187,9 +344,10 @@ class LiveViewModel(
     }
     private fun select(target: ChatTarget) {
         cancelSession()
-        lastEventId = null; reconnectAttempt = 0; historyPaged = false
-        update { it.copy(page = LivePage.CHAT, target = target, messages = emptyList(), composeText = "",
-            historyCursor = null, memberProgress = emptyList(), groupTurnId = null, reactionError = null, imageDraft = null,
+        val cached = conversationCache.get(conversationKey(target))
+        lastEventId = null; reconnectAttempt = 0; historyPaged = cached?.historyPaged ?: false
+        update { it.copy(page = LivePage.CHAT, target = target, messages = cached?.messages ?: emptyList(), composeText = "",
+            historyCursor = cached?.historyCursor, memberProgress = emptyList(), groupTurnId = null, reactionError = null, imageDraft = null,
             imagePrompt = "", imageInstruction = "", error = null, persona = null,
             imageCharacterId = if (target.group) target.memberIds.firstOrNull().orEmpty() else target.id) }
         loadHistory(); connectStream()
@@ -204,25 +362,43 @@ class LiveViewModel(
     fun show(page: LivePage) {
         val old = mutable.value.page
         if (old == page) return
+        screenEpoch++
+        com.charactermemory.android.screen.ScreenShareService.stop(appContext)
+        call.end()
+        voice.invalidate()
+        LiveAudioPlayback.stopAll()
+        if (page == LivePage.USAGE) usageReturnPage = old
         val chatPages = setOf(LivePage.CHAT, LivePage.IMAGE, LivePage.DETAILS)
         if (old in chatPages && page !in chatPages) cancelSession()
         // Prevent late draft writes from repopulating a feature after navigation.
         if (old !in chatPages && old !in setOf(LivePage.HOME, LivePage.SETTINGS) && old != page) cancelSession()
         update { it.copy(page = page, error = null, capacityConfirmation = null) }
         when (page) {
-            LivePage.HOME -> refresh()
-            LivePage.SPACE -> loadSpace()
+            LivePage.HOME -> refresh(force = false)
+            LivePage.SPACE -> { loadSpace(); loadSpaceNotifications(); loadSpaceMentionCharacters() }
             LivePage.ENSEMBLE -> resumeEnsemble()
             LivePage.IMAGE -> loadStickers()
+            LivePage.USAGE -> loadLlmUsage()
             LivePage.CHAT -> { loadHistory(); connectStream() }
             else -> Unit
         }
     }
-    fun back() = show(if (mutable.value.page in setOf(LivePage.IMAGE, LivePage.DETAILS)) LivePage.CHAT else LivePage.HOME)
+    fun back() = show(when (mutable.value.page) {
+        LivePage.IMAGE, LivePage.DETAILS -> LivePage.CHAT
+        LivePage.USAGE -> usageReturnPage
+        else -> LivePage.HOME
+    })
+
+    fun loadLlmUsage() = operation("llm-usage") { client ->
+        val usage = LlmUsageRepository(client).load()
+        currentCoroutineContext().ensureActive()
+        update { it.copy(llmUsage = usage) }
+    }
 
     fun loadHistory(older: Boolean = false) {
-        if (historyLoading || !active) return
+        if (historyLoading || !active || mutable.value.config.coreUrl.isBlank()) return
         val target = mutable.value.target ?: return
+        val generation = fence.current
         val before = if (older) mutable.value.historyCursor ?: return else null
         historyLoading = true
         operation("history") { client ->
@@ -230,15 +406,22 @@ class LiveViewModel(
                 val query = mutableMapOf("limit" to "50")
                 before?.let { query["before_id"] = it }
                 if (!target.group) query["character_id"] = target.id
+                val atRequest = state.value.messages.map { it.deepCopy() }
                 val page = client.get(if (target.group) "/v1/groups/${pathId(target.id)}/history" else "/v1/chat/history-page", query)
                 currentCoroutineContext().ensureActive()
-                update { it.copy(messages = ConversationProjection.merge(it.messages, page.items("messages")),
-                    historyCursor = if (older || !historyPaged) LiveRules.nextCursor(page) else it.historyCursor,
+                if (!fence.accepts(generation)) return@operation
+                val current = state.value
+                val refreshed = ConversationHistoryRefresh.reconcile(
+                    ConversationSnapshot(current.messages, current.historyCursor, historyPaged),
+                    page.items("messages"), atRequest, LiveRules.nextCursor(page), older)
+                update { it.copy(messages = refreshed.messages,
+                    historyCursor = refreshed.historyCursor,
                     groupTurnId = if (target.group && it.groupTurnId == null && "send" !in it.busy)
                         page.items("messages").lastOrNull { message -> message.text("role") == "user" }?.text("turn_id")?.takeIf { id -> id.isNotBlank() }
                         else it.groupTurnId) }
-                if (older) historyPaged = true
-            } finally { if (currentCoroutineContext().isActive) historyLoading = false }
+                historyPaged = refreshed.historyPaged
+                cacheConversation()
+            } finally { if (fence.accepts(generation)) historyLoading = false }
         }
     }
 
@@ -262,7 +445,15 @@ class LiveViewModel(
                 if (!id.isNullOrBlank()) lastEventId = id
                 ConversationProjection.message(type, payload)?.let { message ->
                     update { it.copy(messages = ConversationProjection.merge(it.messages, listOf(message))) }
+                    if (message.text("role") == "assistant" && message.text("action").uppercase() in
+                        setOf("MESSAGE", "REPLY", "MINIMAL_RESPONSE", "PROACTIVE_MESSAGE", "VOICE_MESSAGE")) {
+                        call.reply(message.text("id"), if (target.group) message.text("turn_id") else message.text("source_event_id"),
+                            message.text("content"), message.text("character_id", message.text("actor_id", if (target.group) "" else target.id)))
+                    }
                 }
+                val callKey = if (target.group) payload.text("turn_id") else payload.text("watermark")
+                if (type == "reaction_complete") call.completed(callKey)
+                if (type == "reaction_error") call.reactionFailed(callKey, payload.text("message", "人物回复失败"))
                 if (type == "group_member_complete" && "send" in mutable.value.busy && mutable.value.target?.group == true) {
                     pendingMemberProgress = (pendingMemberProgress + payload).takeLast(12)
                 }
@@ -293,6 +484,7 @@ class LiveViewModel(
     }
 
     fun send(stickerId: String? = null, image: JsonObject? = null) {
+        if (call.state.value.active) { update { it.copy(error = "请先挂断通话再发送文字或图片") }; return }
         val snapshot = mutable.value
         val target = snapshot.target ?: return
         val text = snapshot.composeText.trim()
@@ -320,7 +512,8 @@ class LiveViewModel(
             loadHistory()
         }
     }
-    fun loadStickers() = operation("stickers") { client ->
+    fun loadStickers() = loadStickers(force = false)
+    fun loadStickers(force: Boolean) = cachedRead("stickers", force) { client ->
         val stickers = client.get("/v1/stickers").items("stickers")
         currentCoroutineContext().ensureActive(); update { it.copy(stickers = stickers) }
     }
@@ -336,13 +529,27 @@ class LiveViewModel(
     fun activate() {
         if (active) return
         active = true
-        refresh(); checkHealth()
+        refresh(force = false); loadStickers(); checkHealth()
+        loadSpaceNotifications(); startSpaceNotificationPolling()
         if (mutable.value.page in setOf(LivePage.CHAT, LivePage.IMAGE, LivePage.DETAILS)) { loadHistory(); connectStream() }
-        if (mutable.value.page == LivePage.SPACE) loadSpace()
+        if (mutable.value.page == LivePage.SPACE) { loadSpace(); loadSpaceMentionCharacters() }
         if (mutable.value.page == LivePage.ENSEMBLE) resumeEnsemble()
     }
-    fun deactivate() { if (active) { active = false; cancelSession() } }
-    override fun onCleared() { active = false; cancelSession(); session.cancel(); super.onCleared() }
+    fun deactivate() { if (active) { active = false; spaceNotificationPoll?.cancel(); spaceNotificationPoll = null; cancelSession(stopCapture = false) } }
+    private fun startSpaceNotificationPolling() {
+        if (!active || mutable.value.config.coreUrl.isBlank() || spaceNotificationPoll?.isActive == true) return
+        spaceNotificationPoll = viewModelScope.launch {
+            while (isActive) {
+                delay(60_000L)
+                if (!active || mutable.value.config.coreUrl.isBlank()) break
+                loadSpaceNotifications()
+            }
+        }
+    }
+    override fun onCleared() {
+        active = false; spaceNotificationPoll?.cancel(); spaceNotificationPoll = null
+        cancelSession(); clearLoadingCaches(); session.cancel(); super.onCleared()
+    }
 
     companion object {
         fun factory(context: Context, initialConfig: ServerConfig? = null): ViewModelProvider.Factory = object : ViewModelProvider.Factory {

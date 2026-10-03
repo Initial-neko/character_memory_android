@@ -100,13 +100,13 @@ internal fun LiveEnsemble(state: LiveState, model: LiveViewModel) {
 internal fun LiveImage(state: LiveState, model: LiveViewModel) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).testTag("live-image"),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("润色和生成会调用 Core 的模型。图片先作为草稿，查看后单独确认发送。", color = LiveMuted)
+        Text("一次操作会由 Core 润色描述并生成图片草稿。查看图片后再单独确认发送。", color = LiveMuted)
         val target = state.target
         if (target?.group == true) {
             Text("选择参考人物", color = LiveMuted)
             target.memberIds.forEach { id ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(state.imageCharacterId == id, onClick = { model.imageOptions(id, state.imagePurpose, state.imageUseAvatar) })
+                    RadioButton(state.imageCharacterId == id, onClick = { model.imageOptions(id, state.imagePurpose, state.imagePurpose == "SELFIE") })
                     Text(id)
                 }
             }
@@ -114,16 +114,11 @@ internal fun LiveImage(state: LiveState, model: LiveViewModel) {
         OutlinedTextField(state.imageInstruction, model::editImageInstruction, label = { Text("图片描述") }, minLines = 3,
             modifier = Modifier.fillMaxWidth().testTag("live-image-instruction"))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Switch(state.imagePurpose == "SELFIE", { model.imageOptions(state.imageCharacterId, if (it) "SELFIE" else "SCENE", state.imageUseAvatar) },
+            Switch(state.imagePurpose == "SELFIE", { model.imageOptions(state.imageCharacterId, if (it) "SELFIE" else "SCENE", it) },
                 modifier = Modifier.testTag("live-image-selfie"))
             Text("人物自拍（关闭为场景）")
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(state.imageUseAvatar, { model.imageOptions(state.imageCharacterId, state.imagePurpose, it) }, modifier = Modifier.testTag("live-image-avatar"))
-            Text("使用当前头像参考")
-        }
-        LiveAction("润色提示词", "live-image-rewrite", state.busy.isEmpty()) { model.rewriteImage() }
-        LiveAction(if ("image-generate" in state.busy) "处理中…" else "生成图片草稿", "live-image-generate", state.busy.isEmpty()) { model.rewriteImage(true) }
+        LiveAction(if ("image-generate" in state.busy) "正在润色并生成…" else "润色并生成图片草稿", "live-image-generate", state.busy.isEmpty()) { model.generateImageDraft() }
         if (state.imagePrompt.isNotBlank()) Text(state.imagePrompt, modifier = Modifier.testTag("live-image-prompt"))
         state.imageDraft?.let { draft ->
             Column(Modifier.fillMaxWidth().testTag("live-image-draft"), verticalArrangement = Arrangement.spacedBy(12.dp)) {

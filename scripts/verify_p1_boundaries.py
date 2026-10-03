@@ -20,9 +20,18 @@ permissions = [
     for child in root
     if child.tag in {"uses-permission", "uses-permission-sdk-23"}
 ]
-forbidden = ("RECORD_AUDIO", "CAMERA", "FOREGROUND_SERVICE", "MEDIA_PROJECTION", "POST_NOTIFICATIONS")
-violations = [permission for permission in permissions if any(token in permission for token in forbidden)]
 app = root.find("application")
+projection_valid = bool(app is not None and
+    (ROOT / "app/src/main/java/com/charactermemory/android/screen/ScreenShareService.kt").exists() and
+    any(service.attrib.get(ns + "name") == ".screen.ScreenShareService" and
+        service.attrib.get(ns + "exported") == "false" and
+        service.attrib.get(ns + "foregroundServiceType") == "mediaProjection" for service in app.findall("service")))
+projection_permissions = {"android.permission.FOREGROUND_SERVICE", "android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"}
+camera_valid = (ROOT / "app/src/main/java/com/charactermemory/android/camera/CameraCapture.kt").exists()
+forbidden = ("CAMERA", "FOREGROUND_SERVICE", "MEDIA_PROJECTION", "POST_NOTIFICATIONS")
+violations = [permission for permission in permissions if any(token in permission for token in forbidden)
+              and not (projection_valid and permission in projection_permissions)
+              and not (camera_valid and permission == "android.permission.CAMERA")]
 if app is None:
     violations.append("missing application")
 elif app.attrib.get(ns + "usesCleartextTraffic") != "false":
@@ -41,8 +50,8 @@ mock_network_errors = []
 package = ROOT / "app/src/main/java/com/charactermemory/android"
 mock_sources = sorted((package / "screens").glob("*.kt")) + sorted(package.glob("Prototype*.kt"))
 network_pattern = re.compile(
-    r"^import\s+(?:okhttp3|retrofit2|java\.net|javax\.net|android\.net|"
-    r"com\.charactermemory\.android\.(?:data|live))\b|"
+    r"^import\s+(?:okhttp3|retrofit2|java\.net|javax\.net|android\.net|android\.media|"
+    r"com\.charactermemory\.android\.(?:data|live|screen|camera))\b|"
     r"\b(?:CoreApi|LiveViewModel|HttpURLConnection|Socket)\s*\(|\bURL\s*\(", re.MULTILINE
 )
 for source in mock_sources:
@@ -75,7 +84,7 @@ result = {
     "mock_sources_checked": [str(path.relative_to(ROOT)) for path in mock_sources],
     "mock_network_violations": mock_network_errors,
     "explicit_mock_entry": explicit_mock_entry,
-    "note": "P2 may request INTERNET. P1 Mock sources stay offline; capture permissions remain prohibited. Source invariant only; built APK manifest still requires verification."
+    "note": "Live may request INTERNET and RECORD_AUDIO. P1 Mock sources stay offline without audio access; other capture permissions remain prohibited. Source invariant only; built APK manifest still requires verification."
 }
 out = ROOT / "artifacts/p1-boundary-evidence.json"
 out.parent.mkdir(parents=True, exist_ok=True)

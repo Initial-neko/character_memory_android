@@ -1,14 +1,16 @@
 package com.charactermemory.android.live
 
-import android.media.MediaPlayer
 import android.widget.MediaController
 import android.widget.VideoView
 import android.os.SystemClock
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -33,7 +35,17 @@ import kotlinx.coroutines.delay
 
 @Composable
 internal fun LiveSpace(state: LiveState, model: LiveViewModel) {
-    LazyColumn(Modifier.fillMaxSize().testTag("live-space"), contentPadding = PaddingValues(16.dp),
+    val listState = rememberLazyListState()
+    LaunchedEffect(state.focusedSpacePostId, state.posts, state.spaceNotifications) {
+        val postId = state.focusedSpacePostId ?: return@LaunchedEffect
+        val postIndex = state.posts.indexOfFirst { it.text("id") == postId }
+        if (postIndex >= 0) {
+            val notificationCard = if (state.spaceNotifications.isNotEmpty() || state.spaceUnreadCount > 0 ||
+                state.spaceNotificationError != null || "space-notifications" in state.busy) 1 else 0
+            listState.animateScrollToItem(1 + notificationCard + postIndex)
+        }
+    }
+    LazyColumn(Modifier.fillMaxSize().testTag("live-space"), state = listState, contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -41,6 +53,10 @@ internal fun LiveSpace(state: LiveState, model: LiveViewModel) {
                 LiveIconAction(LiveSymbol.REFRESH, "刷新动态", "live-space-refresh", "space" !in state.busy) { model.loadSpace() }
             }
             if (state.posts.isEmpty() && "space" !in state.busy) Text("暂无动态", color = LiveMuted)
+        }
+        if (state.spaceNotifications.isNotEmpty() || state.spaceUnreadCount > 0 || state.spaceNotificationError != null ||
+            "space-notifications" in state.busy) item {
+            LiveSpaceNotifications(state, model)
         }
         items(state.posts, key = { it.text("id") }) { post -> LivePost(post, state, model) }
         if (state.spaceCursor != null) item {
@@ -50,12 +66,52 @@ internal fun LiveSpace(state: LiveState, model: LiveViewModel) {
 }
 
 @Composable
+private fun LiveSpaceNotifications(state: LiveState, model: LiveViewModel) {
+    LivePanelCard(Modifier.fillMaxWidth().testTag("live-space-notifications")) {
+        Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("角色找你", color = LivePale, fontWeight = FontWeight.SemiBold)
+                    Text("应用内未读提醒 · ${state.spaceUnreadCount}", color = LiveMuted, fontSize = 11.sp)
+                }
+                LiveIconAction(LiveSymbol.REFRESH, "刷新提醒", "live-space-notifications-refresh",
+                    "space-notifications" !in state.busy, model::loadSpaceNotifications)
+            }
+            if (state.spaceNotifications.isEmpty()) {
+                val status = state.spaceNotificationError?.let { "提醒暂不可用：$it" }
+                    ?: if ("space-notifications" in state.busy) "正在检查提醒…" else "暂无未读提醒"
+                Text(status, color = LiveMuted, fontSize = 12.sp)
+            }
+            state.spaceNotifications.forEach { notification ->
+                val id = notification.text("id")
+                val comment = notification.objOrNull("comment")
+                val reasons = notification.get("reasons")?.takeIf { it.isJsonArray }?.asJsonArray
+                    ?.mapNotNull { runCatching { it.asString }.getOrNull() }.orEmpty()
+                val description = if (comment?.flag("mentions_user") == true || "MENTION" in reasons) "提到了你" else "回复了你"
+                val name = comment?.objOrNull("author")?.text("name") ?: comment?.text("character_id").orEmpty()
+                TextButton(onClick = { model.openSpaceNotification(id) }, modifier = Modifier.fillMaxWidth()
+                    .testTag("live-space-notification-$id"), enabled = "space-notification-$id" !in state.busy) {
+                    Column(Modifier.fillMaxWidth()) {
+                        Text("${name.ifBlank { "角色" }} $description", color = LiveAccent, fontWeight = FontWeight.SemiBold)
+                        Text(comment?.text("content").orEmpty(), color = LivePale, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text("打开这条评论", color = LiveCyan, fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun LivePost(post: JsonObject, state: LiveState, model: LiveViewModel) {
     val id = post.text("id")
     var comment by rememberSaveable(state.config.coreUrl, id) { mutableStateOf("") }
     var reply by rememberSaveable(state.config.coreUrl, id) { mutableStateOf<Long?>(null) }
+    var selectedMentions by rememberSaveable(state.config.coreUrl, id) { mutableStateOf(emptyList<String>()) }
+    var mentionMenuExpanded by rememberSaveable(state.config.coreUrl, id) { mutableStateOf(false) }
     var showComments by rememberSaveable(state.config.coreUrl, id) { mutableStateOf(false) }
     val comments = post.items("comments")
+    val mentionCharacters = state.spaceMentionCharacters.ifEmpty { state.characters }
     val receipt = state.commentReceipts[id]
     val owner = LocalLifecycleOwner.current
     val replyWindow = receipt?.replyWindow
@@ -63,7 +119,7 @@ private fun LivePost(post: JsonObject, state: LiveState, model: LiveViewModel) {
     var handledReceipt by rememberSaveable(state.config.coreUrl, id) { mutableStateOf(receipt?.id) }
     LaunchedEffect(receipt?.id) {
         if (receipt != null && receipt.id != handledReceipt) {
-            if (LiveRules.shouldClearCommentDraft(comment, reply, receipt)) { comment = ""; reply = null }
+            if (LiveRules.shouldClearCommentDraft(comment, reply, selectedMentions, receipt)) { comment = ""; reply = null; selectedMentions = emptyList() }
             showComments = true
             handledReceipt = receipt.id
         }
@@ -87,6 +143,9 @@ private fun LivePost(post: JsonObject, state: LiveState, model: LiveViewModel) {
             }
             awaitingReply = false
         } } finally { awaitingReply = false }
+    }
+    LaunchedEffect(state.focusedSpaceCommentId) {
+        if (state.focusedSpacePostId == id && state.focusedSpaceCommentId != null) showComments = true
     }
     LivePanelCard(Modifier.fillMaxWidth().testTag("live-space-post-$id")) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -114,14 +173,31 @@ private fun LivePost(post: JsonObject, state: LiveState, model: LiveViewModel) {
                 Column(Modifier.fillMaxWidth().background(Color(0xFF111B2C), RoundedCornerShape(12.dp)).padding(10.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 comments.forEach { item ->
-                    Column(Modifier.testTag("live-space-reply-${item.text("id")}")) {
+                    val commentId = item.text("id")
+                    val focused = state.focusedSpacePostId == id && state.focusedSpaceCommentId == commentId
+                    Column(Modifier.fillMaxWidth().background(
+                        if (focused) Color(0xFF253A54) else Color.Transparent, RoundedCornerShape(10.dp))
+                        .padding(6.dp).testTag("live-space-reply-$commentId")) {
                         val replyId = item.text("reply_to_comment_id")
                         val replyTarget = comments.firstOrNull { it.text("id") == replyId }
                         val replyAuthor = replyTarget?.objOrNull("author")?.text("name")
                         Text("${item.objOrNull("author")?.text("name", item.text("character_id")) ?: item.text("character_id")}${if (replyId.isNotBlank()) " 回复 ${replyAuthor?.takeIf { it.isNotBlank() } ?: "评论"}" else ""}：${item.text("content")}",
                             color = LivePale, fontSize = 13.sp, lineHeight = 20.sp)
+                        val mentionedIds = item.get("mentions")?.takeIf { it.isJsonArray }?.asJsonArray
+                            ?.mapNotNull { runCatching { it.asString }.getOrNull() }.orEmpty()
+                        if (mentionedIds.isNotEmpty()) {
+                            val names = mentionedIds.map { roleId -> mentionCharacters.firstOrNull { it.text("id") == roleId }?.text("name", roleId) ?: roleId }
+                            Text("提及 ${names.joinToString(" ") { "@$it" }}", color = LiveCyan, fontSize = 11.sp,
+                                modifier = Modifier.testTag("live-space-comment-mentions-$commentId"))
+                        }
+                        LiveRules.spaceRoleAttentionMarker(item, comments)?.let { marker ->
+                            val markerTag = if (item.flag("mentions_user")) "live-space-comment-mentions-user-$commentId"
+                                else "live-space-comment-reply-to-user-$commentId"
+                            Text(marker, color = Color(0xFFFFB26B), fontWeight = FontWeight.Bold, fontSize = 11.sp,
+                                modifier = Modifier.testTag(markerTag))
+                        }
                         item.objOrNull("sticker")?.let { LiveMedia(it, model, "live-comment-sticker-${item.text("id")}") }
-                        TextButton(onClick = { reply = item.number("id") }, modifier = Modifier.testTag("live-space-reply-to-${item.text("id")}")) { Text("回复") }
+                        TextButton(onClick = { reply = item.number("id") }, modifier = Modifier.testTag("live-space-reply-to-$commentId")) { Text("回复") }
                     }
                 }
                 reply?.let { value ->
@@ -130,11 +206,42 @@ private fun LivePost(post: JsonObject, state: LiveState, model: LiveViewModel) {
                 }
                 OutlinedTextField(comment, { comment = it.take(1000) }, placeholder = { Text(if (reply == null) "写评论…" else "写回复…") },
                     shape = RoundedCornerShape(15.dp), modifier = Modifier.fillMaxWidth().testTag("live-space-comment-$id"), maxLines = 4)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Box {
+                        TextButton(onClick = { mentionMenuExpanded = !mentionMenuExpanded },
+                            modifier = Modifier.testTag("live-space-mention-toggle-$id")) { Text("＋ @角色 ${selectedMentions.size}/4", color = LiveCyan) }
+                        DropdownMenu(expanded = mentionMenuExpanded, onDismissRequest = { mentionMenuExpanded = false }) {
+                            mentionCharacters.forEach { character ->
+                                val characterId = character.text("id")
+                                val selected = characterId in selectedMentions
+                                DropdownMenuItem(
+                                    text = { Text("${if (selected) "✓ " else "@"}${character.text("name", characterId)}") },
+                                    onClick = {
+                                        selectedMentions = if (selected) selectedMentions - characterId else selectedMentions + characterId
+                                        mentionMenuExpanded = false
+                                    },
+                                    enabled = selected || selectedMentions.size < 4,
+                                    modifier = Modifier.testTag("live-space-mention-$id-$characterId")
+                                )
+                            }
+                        }
+                    }
+                }
+                if (selectedMentions.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    selectedMentions.forEach { roleId ->
+                        val name = mentionCharacters.firstOrNull { it.text("id") == roleId }?.text("name", roleId) ?: roleId
+                        AssistChip(onClick = { selectedMentions = selectedMentions - roleId },
+                            label = { Text("@$name ×", maxLines = 1) },
+                            modifier = Modifier.testTag("live-space-mention-chip-$id-$roleId"))
+                    }
+                }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = { model.refreshPost(id) }, enabled = "space-post-$id" !in state.busy,
                         modifier = Modifier.weight(1f).testTag("live-space-post-refresh-$id")) { Text("刷新人物回复", fontSize = 12.sp) }
                     LiveIconAction(LiveSymbol.SEND, "发送评论", "live-space-comment-send-$id", comment.isNotBlank() && "comment-$id" !in state.busy) {
-                        model.comment(id, comment, reply)
+                        model.comment(id, comment, reply, mentions = selectedMentions)
                     }
                 }
                 }
@@ -159,7 +266,7 @@ internal fun LiveMedia(media: JsonObject, model: LiveViewModel, tag: String) {
     val url = model.assetUrl(path)
     if (url.isBlank()) { Text("$label · 地址不可用", color = LiveMuted); return }
     when {
-        mime.startsWith("audio/") || kind == "VOICE" -> LiveAudio(url, label, tag)
+        mime.startsWith("audio/") || kind == "VOICE" -> LiveAudioPlayerButton(url, label, tag, "space:$tag\u0000$url")
         mime.startsWith("video/") || kind == "VIDEO" -> LiveVideo(url, label, tag)
         else -> {
             var failed by remember(url) { mutableStateOf(false) }
@@ -170,39 +277,6 @@ internal fun LiveMedia(media: JsonObject, model: LiveViewModel, tag: String) {
             }
         }
     }
-}
-
-@Composable
-private fun LiveAudio(url: String, label: String, tag: String) {
-    var player by remember(url) { mutableStateOf<MediaPlayer?>(null) }
-    var status by remember(url) { mutableStateOf("播放") }
-    val owner = LocalLifecycleOwner.current
-    DisposableEffect(url, owner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) { player?.release(); player = null; status = "播放" }
-        }
-        owner.lifecycle.addObserver(observer)
-        onDispose { owner.lifecycle.removeObserver(observer); player?.release(); player = null }
-    }
-    TextButton(onClick = {
-        if (player != null) { player?.release(); player = null; status = "播放" }
-        else {
-            val created = MediaPlayer()
-            player = created; status = "加载中…"
-            created.setOnPreparedListener { prepared ->
-                if (player === prepared) { prepared.start(); status = "停止" }
-            }
-            created.setOnCompletionListener { completed ->
-                if (player === completed) { completed.release(); player = null; status = "播放" }
-            }
-            created.setOnErrorListener { failed, _, _ ->
-                if (player === failed) { failed.release(); player = null; status = "播放失败，重试" }; true
-            }
-            runCatching { created.setDataSource(url); created.prepareAsync() }.onFailure {
-                created.release(); player = null; status = "播放失败，重试"
-            }
-        }
-    }, modifier = Modifier.testTag(tag)) { Text("$label · $status") }
 }
 
 @Composable

@@ -1,6 +1,6 @@
 # Android V1 测试与 AI 验收规范
 
-Status: **P1 historical CI executed; P2 source and fixture automation added; current execution evidence is commit-specific; P3–P5 remain design**. Historical P1 CI [run #36872285876](https://github.com/Initial-neko/character_memory_android/actions/runs/36872285876) has its own APK/JUnit and nine screen captures. Current P1/P2 gates are listed below. Real Core and Android media hardware remain NOT RUN until separately verified.
+Status: **V1 voice/call/sticker/visual source and regressions integrated; execution evidence is commit-specific**. Full CI verifies synthetic HTTPS/UI flows; local-service TTS→ASR evidence and phone microphone/speaker/camera/screen evidence are separate gates. Do not infer hardware success from CI.
 
 ## 当前自动化门槛
 
@@ -9,15 +9,15 @@ Status: **P1 historical CI executed; P2 source and fixture automation added; cur
 | 证据 | P1 | P2 |
 |---|---|---|
 | JVM | ≥13，0 失败/错误/跳过 | ≥27（transport/projection 16 + LiveRules 9 + time formatting 2），0 失败/错误/跳过 |
-| 模拟器 | PrototypeUiTest ≥5 | LiveApiUiTest ≥9，注入 HTTPS MockWebServer；含 Space 自动回复/收起停止轮询与损坏图片禁发 |
-| 截图 | p1-01 至 p1-12，固定完整文件名 | 下列 9 个固定文件名 |
-| 真实 Core/真机媒体 | NOT RUN | 用户后端验收；媒体 P3–P5 尚未实现 |
+| 模拟器 | PrototypeUiTest ≥5 | LiveApiUiTest + VoiceMessageUiTest ≥39，合成 HTTPS、ASR 草稿、通话、表情 SVG/损坏禁发、视觉路由 |
+| 截图 | p1-01 至 p1-12，固定完整文件名 | p2-01 至 p2-19，准确文件名由汇总脚本定义 |
+| 真实 Core/真机媒体 | 分开记录 | 本地服务 ASR/TTS 与手机传感器分开验收，不用源代码或合成素材推定硬件 PASS |
 
 P2 截图保存到 `/sdcard/Pictures/CharacterMemoryP2/`：`p2-01-settings.png`、`p2-02-roster.png`、`p2-03-direct-chat.png`、`p2-04-chat-ime.png`、`p2-05-space.png`、`p2-06-character-draft.png`、`p2-07-ensemble-preview.png`、`p2-08-image-draft.png`、`p2-09-group-chat.png`。不能使用设计图或旧提交截图填补。
 
 CI 先运行 `python3 -m unittest discover -s scripts -p 'test_*.py' -v`，覆盖 skipped/非法与缺失 XML、阶段隔离、缺图和 SHA。Android JVM 使用两次真实 `--rerun-tasks` 执行，第二轮先清除上一轮输出；各轮 XML/JSON 保存在 `artifacts/jvm-run-1/` 和 `artifacts/jvm-run-2/`。构建任务保留 APK/JUnit/lint，模拟器保留截图/JUnit/logcat。没有 `continue-on-error` 或静默忽略必需截图的回退。
 
-源码边界脚本允许共享 APK 的 INTERNET；它禁止媒体/捕获权限，并检查 P1 Mock 源码不依赖网络或 `live/data` 客户端。P1 必须通过显式 `p1_mock=true` 启动，普通用户启动真实 P2。脚本只证明源码约束，不能替代最终 APK 合并 Manifest 或设备行为验证。
+源码边界脚本允许 Live 的 INTERNET、RECORD_AUDIO；CAMERA 仅在原生 CameraCapture 存在时允许，投屏前台服务权限仅在非导出、类型为 mediaProjection 的服务存在时允许。P1 Mock 源码禁止引用网络、媒体或 Live/camera/screen 包，仍通过显式 `p1_mock=true` 启动。脚本不能替代最终 APK 合并 Manifest 或设备行为验证。
 
 ## 1. Evidence levels
 

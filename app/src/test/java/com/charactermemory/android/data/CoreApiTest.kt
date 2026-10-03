@@ -18,6 +18,11 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
 class CoreApiTest {
+    @Test fun upgradeCorrectsLegacyTailnetMediaOriginButKeepsCustomGateway() {
+        val fixed = ServerConfig.normalize("https://node.example.ts.net", "https://node.example.ts.net")
+        assertEquals("https://node.example.ts.net:8443", fixed.mediaUrl)
+        assertEquals("https://gateway.example", ServerConfig.normalize("https://gateway.example", "https://gateway.example").mediaUrl)
+    }
     @Test fun normalizesHttpsAndDerivesIndependentMediaOrigin() {
         assertEquals("", ServerConfig.DEFAULT_CORE)
         assertEquals("", ServerConfig("", "").coreUrl)

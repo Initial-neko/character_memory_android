@@ -1,6 +1,6 @@
 # Android V1 运行架构
 
-Status: **P1 offline demo and P2 API client source implemented; execution evidence is commit-specific**. Native capture/voice/device authentication sections below remain future design. Read [P2_SETUP.md](P2_SETUP.md) for current connection and acceptance boundaries.
+Status: **V1 client source includes chat, ASR/TTS, queued voice calls, sticker packs, Space reminders and native visual capture; execution evidence is commit-specific**. Device pairing remains planned. Read [P2_SETUP.md](P2_SETUP.md) for connection boundaries; hardware validation must be reported independently.
 
 - API fact source: [Core-owned Mobile API Contract](https://github.com/Initial-neko/character_memory/blob/main/docs/current/MOBILE_API_CONTRACT.md)
 - PC mobile deployment: [Core Mobile Access](https://github.com/Initial-neko/character_memory/blob/main/docs/current/MOBILE_ACCESS.md)
@@ -47,7 +47,7 @@ app/src/main/java/.../
     call/         turn queue, ASR/TTS orchestration and controls
     settings/     network/media/theme/notifications
   media/
-    camera/       CameraX preview + analysis
+    camera/       Camera2 foreground preview / bounded confirmed frame
     screen/       MediaProjection + foreground service
     voice/        AudioRecord, playback, focus
     visual/       bounded keyframe selection / local diff

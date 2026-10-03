@@ -18,7 +18,7 @@ Debug APK 可通过显式 activity extra `initial_core_url` / `initial_media_url
 - `202 Accepted` 表示服务器接收了用户事件；界面区分等待、角色事件、silence 和 reaction_error，不能把 202 当作模型已回复。
 - 历史与 SSE 按持久事件 ID 对账；只读流可以重连，写请求不会因结果不明确而自动重发。切换目标/退后台会关闭旧流并防止旧响应更新新会话。
 - 人物、群组和图片草稿需要用户确认。409 soft-limit 需要显式再确认。网络取消或错误后，应先检查历史/服务器状态，避免重复创建或发送。
-- P2 展示服务器返回的头像、图片和表情；Media 不可用须独立展示错误。尚未实现手机 ASR/TTS、麦克风、摄像头、MediaProjection、设备配对或 bearer-token 授权。
+- V1 源码已接入 ASR 草稿、TTS/持久语音与完整通话协调器、表情套装、Camera2 和 MediaProjection；入口与限制见 [V1_INTEGRATION.md](V1_INTEGRATION.md)。Media 不可用独立展示错误。设备配对与 bearer-token 授权仍未实现。
 - Core #213 的 canonical Direct ID、跨端 read state 与设备权限迁移在范围外。Tailnet HTTPS 是网络传输边界，不能称为 Android 设备认证。
 
 ## Fixture 来源

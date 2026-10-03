@@ -67,6 +67,7 @@ fun LiveApp(model: LiveViewModel = viewModel(factory = LiveViewModel.factory(Loc
                         LivePage.SPACE -> "空间"
                         LivePage.IMAGE -> "图片草稿"
                         LivePage.DETAILS -> "人物详情"
+                        LivePage.USAGE -> "LLM 使用情况"
                     }, color = LivePale, fontSize = if (state.page in roots) 22.sp else 20.sp,
                         fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                     if (state.page == LivePage.HOME) LiveIconAction(LiveSymbol.REFRESH, "刷新会话列表", "live-refresh",
@@ -76,8 +77,20 @@ fun LiveApp(model: LiveViewModel = viewModel(factory = LiveViewModel.factory(Loc
                 if (state.page in roots) NavigationBar(containerColor = Color(0xFF111B2C)) {
                     listOf(LivePage.HOME to "聊天", LivePage.SPACE to "空间", LivePage.SETTINGS to "设置").forEach { (page, label) ->
                         NavigationBarItem(selected = state.page == page, onClick = { model.show(page) },
-                            icon = { LiveGlyph(if (page == LivePage.HOME) LiveSymbol.CHAT else if (page == LivePage.SPACE) LiveSymbol.SPACE else LiveSymbol.SETTINGS,
-                                tint = if (state.page == page) LiveAccent else LiveMuted) },
+                            icon = {
+                                if (page == LivePage.SPACE && state.spaceUnreadCount > 0) {
+                                    BadgedBox(badge = { Badge {
+                                        Text(if (state.spaceUnreadCount > 99) "99+" else state.spaceUnreadCount.toString(),
+                                            modifier = Modifier.testTag("live-space-unread-badge"))
+                                    } }) {
+                                        LiveGlyph(if (page == LivePage.HOME) LiveSymbol.CHAT else if (page == LivePage.SPACE) LiveSymbol.SPACE else LiveSymbol.SETTINGS,
+                                            tint = if (state.page == page) LiveAccent else LiveMuted)
+                                    }
+                                } else {
+                                    LiveGlyph(if (page == LivePage.HOME) LiveSymbol.CHAT else if (page == LivePage.SPACE) LiveSymbol.SPACE else LiveSymbol.SETTINGS,
+                                        tint = if (state.page == page) LiveAccent else LiveMuted)
+                                }
+                            },
                             label = { Text(label) }, modifier = Modifier.testTag("live-tab-${page.name.lowercase()}"))
                     }
                 }
@@ -96,6 +109,7 @@ fun LiveApp(model: LiveViewModel = viewModel(factory = LiveViewModel.factory(Loc
                         LivePage.SPACE -> LiveSpace(state, model)
                         LivePage.IMAGE -> LiveImage(state, model)
                         LivePage.DETAILS -> LiveDetails(state)
+                        LivePage.USAGE -> LiveUsage(state, model)
                     }
                 }
             }
@@ -123,6 +137,7 @@ internal fun LiveSettings(state: LiveState, model: LiveViewModel) {
         Text("Core：${state.coreHealth}", modifier = Modifier.testTag("live-core-status"))
         Text("Media：${state.mediaHealth}", modifier = Modifier.testTag("live-media-status"))
         LiveAction("重新检查", "live-health-refresh", state.config.coreUrl.isNotBlank()) { model.checkHealth() }
+        LiveAction("查看 LLM 使用情况", "live-usage-open", state.config.coreUrl.isNotBlank()) { model.show(LivePage.USAGE) }
         OutlinedButton(onClick = model::resetConfig, modifier = Modifier.testTag("live-reset-config")) { Text("清除服务器配置") }
         Text("配置只保存在此手机。文字聊天可独立于 Media 使用。当前 Core 的设备配对与统一跨端会话尚未提供；本页不代表设备授权。",
             style = MaterialTheme.typography.bodySmall, color = LiveMuted)

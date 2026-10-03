@@ -5,6 +5,27 @@ import java.time.OffsetDateTime
 
 /** Core 508c6f0: history id is durable; SSE id is a separate replay cursor. */
 object ConversationProjection {
+    private val voiceFields = listOf("voice_status", "voice_media_id", "voice_duration_ms", "voice_error")
+    /** Preserve a voice update received while this history request was in flight.
+     * A subsequent history request can still authoritatively clear fields (ready -> failed).
+     */
+    fun reconcileHistory(existing: List<JsonObject>, incoming: List<JsonObject>, atRequest: List<JsonObject>): List<JsonObject> {
+        val before = atRequest.associateBy { it.text("id") }
+        val current = existing.associateBy { it.text("id") }
+        val protected = incoming.map { record ->
+            val id = record.text("id")
+            val latest = current[id]
+            if (latest != null && voiceFields.any { latest.get(it) != before[id]?.get(it) }) {
+                record.deepCopy().apply {
+                    voiceFields.forEach { key -> if (latest.has(key)) add(key, latest.get(key).deepCopy()) else remove(key) }
+                    objOrNull("metadata")?.let { metadata ->
+                        voiceFields.forEach { key -> if (latest.has(key)) metadata.add(key, latest.get(key).deepCopy()) else metadata.remove(key) }
+                    }
+                }
+            } else record
+        }
+        return merge(existing, protected)
+    }
     fun merge(existing: List<JsonObject>, incoming: List<JsonObject>): List<JsonObject> {
         val messages = linkedMapOf<String, JsonObject>()
         (existing + incoming).forEach { message ->
@@ -33,7 +54,7 @@ object ConversationProjection {
             else payload.text("event_type") == "USER_MESSAGE"
         result.addProperty("role", if (user) "user" else "assistant")
         if (user && metadata.has("display_text") && !metadata.get("display_text").isJsonNull) result.add("content", metadata.get("display_text").deepCopy())
-        listOf("action", "action_index", "sticker_id", "image_id", "media_id", "source_event_id", "source_event_type", "source_conversation_event_id", "mentions", "voice", "voice_url", "voice_status").forEach { key ->
+        listOf("action", "action_index", "sticker_id", "image_id", "media_id", "source_event_id", "source_event_type", "source_conversation_event_id", "mentions", "voice", "voice_url", "voice_status", "voice_media_id", "voice_duration_ms", "voice_error").forEach { key ->
             if (metadata.has(key)) result.add(key, metadata.get(key).deepCopy())
         }
         val mediaId = result.text("media_id")

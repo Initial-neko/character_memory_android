@@ -136,6 +136,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           cache-read-only: true
+      - name: Compile app and tests before starting the emulator
+        run: ./gradlew --no-daemon --max-workers=2 assembleDebug assembleDebugAndroidTest
       - name: Enable KVM group permissions
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -153,9 +155,12 @@ jobs:
       - name: Summarize P1 instrumented evidence
         if: always()
         run: python3 scripts/summarize_evidence.py --mode emulator --output artifacts/p1-emulator-evidence.json
+      - name: Print bounded instrumented failure details
+        if: always()
+        run: python3 scripts/print_ui_failures.py
       - name: Summarize P2 instrumented evidence
         if: always()
-        run: python3 scripts/summarize_evidence.py --mode emulator --profile p2 --min-tests 9 --output artifacts/p2-emulator-evidence.json
+        run: python3 scripts/summarize_evidence.py --mode emulator --profile p2 --min-tests 40 --output artifacts/p2-emulator-evidence.json
       - name: Upload screenshots / reports / logs
         if: always()
         uses: actions/upload-artifact@v4

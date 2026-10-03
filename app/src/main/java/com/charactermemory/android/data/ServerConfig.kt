@@ -15,7 +15,9 @@ data class ServerConfig(val coreUrl: String, val mediaUrl: String) {
 
         fun normalize(core: String, media: String = ""): ServerConfig {
             val coreOrigin = origin(core, true)
-            val mediaOrigin = if (media.isBlank()) coreOrigin.newBuilder().port(8443).build() else origin(media, true)
+            val explicitMedia = if (media.isBlank()) "" else origin(media, true).toString().trimEnd('/')
+            val mediaOrigin = if (MediaEndpointPolicy.useDefault(coreOrigin.toString().trimEnd('/'), explicitMedia))
+                coreOrigin.newBuilder().port(8443).build() else origin(media, true)
             return ServerConfig(coreOrigin.toString().trimEnd('/'), mediaOrigin.toString().trimEnd('/'))
         }
 

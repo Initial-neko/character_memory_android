@@ -1,6 +1,6 @@
 # Android V1 交付计划
 
-Status: **P1 implementation landed on main; P2 client source implemented, current CI and user backend acceptance pending; P3–P5 planned**. Historical P1 CI [run #36872285876](https://github.com/Initial-neko/character_memory_android/actions/runs/36872285876) proves its own app/debug build and screenshots (JVM 13/13; UI 3/3; 9 screenshots), not the current commit or real Core/media functionality. Current P2 setup/acceptance boundaries are maintained in [P2_SETUP.md](P2_SETUP.md).
+Status: **V1 chat/voice/sticker/visual source integrated; full candidate CI and hardware acceptance remain required**. Historical results only prove their own commits. Current connection boundaries are maintained in [P2_SETUP.md](P2_SETUP.md). Camera uses Android Camera2 without a new capture framework; native preview/rotation/permissions must pass device acceptance.
 
 ## 0. Product scope
 
@@ -16,7 +16,7 @@ Status: **P1 implementation landed on main; P2 client source implemented, curren
 | P1 — Bootstrap | Minimal dev/mock fixture data | Kotlin+Compose shell, theme, six UI surfaces, status page, mock client, Gradle CI | Debug APK builds, six screenshot baselines, emulator navigation tests |
 | P2 — Product | Consume existing Core APIs; Core #213 migration excluded | Chat+SSE+reconcile, character draft/create, ensemble, groups, Space, ImageGen | JVM + emulator fixture evidence; real PC 202→SSE→history separately accepted by user |
 | P3 — Voice | No new ASR/TTS business logic required | Native mic record, VAD/segmenting, ASR request, TTS queue, speaker/audio focus, call state | Fixed WAV fixture + real headset/mic playback and cancel tests |
-| P4 — Vision | Reuse existing bounded visual routes; consider session binding if background share outlives foreground UI | CameraX preview/switch; MediaProjection prompt/FGS; keyframes/limiter | Real phone correct frame to correct character, permissions/stop/lock/network scenarios |
+| P4 — Vision | Reuse existing bounded visual routes; freeze server and direct target during background share | Camera2 preview/switch/confirmed frame; MediaProjection prompt/FGS; keyframes/limiter | Real phone correct frame to correct character, permissions/stop/lock/network scenarios |
 | P5 — Acceptance | No regression to PC WebUI | Performance+crash/security/notification/release polish | CI reports, hardware logcat + screen record, signed candidate APK, explicit test matrix |
 
 Use **small independently reviewable PRs**, not a single giant all-features PR. Backend changes go to `character_memory`; Android implementation to `character_memory_android`. Cross-repo dependency must link the related Core PR and contract revision.
