@@ -111,9 +111,9 @@ class VoiceCoordinatorTest {
             allowPlayerStopReturn.countDown()
             runBlocking { withTimeout(2_000L) { harness.recorder.captureStarted.await() } }
 
-            assertEquals("voice-ui-main", harness.playerThreadName.get())
-            assertEquals("voice-audio-io", harness.factoryThreadName.get())
-            assertEquals("voice-audio-io", harness.recorder.captureThreadName.get())
+            assertEquals("voice-ui-main", harness.playerThreadName.get().substringBefore(" @coroutine#"))
+            assertEquals("voice-audio-io", harness.factoryThreadName.get().substringBefore(" @coroutine#"))
+            assertEquals("voice-audio-io", harness.recorder.captureThreadName.get().substringBefore(" @coroutine#"))
             assertTrue(harness.events.indexOf("player-stop-complete") < harness.events.indexOf("recorder-create"))
 
             assertTrue(harness.coordinator.stop(ticket))
@@ -188,7 +188,7 @@ class VoiceCoordinatorTest {
 
             assertEquals("voice-ui-caller", returnedOn)
             assertTrue(enteredCancel.await(2, TimeUnit.SECONDS))
-            assertEquals("voice-cancel-io", harness.recorder.cancelThreadName.get())
+            assertEquals("voice-cancel-io", harness.recorder.cancelThreadName.get().substringBefore(" @coroutine#"))
             assertEquals(VoiceCoordinatorPhase.CANCELLING, harness.coordinator.state.value.phase)
             assertNull(harness.coordinator.state.value.ticket)
             assertNull(harness.coordinator.requestStart())

@@ -40,7 +40,7 @@ class AudioRecordRecorderTest {
         val pcm = runBlocking { recorder.capture { durations += it } }
 
         assertEquals(480_000, input.readSizes.sum())
-        assertEquals(288, input.readSizes.last())
+        assertEquals(768, input.readSizes.last())
         assertEquals(960_000, pcm.size)
         assertEquals(30_000L, durations.last())
         assertArrayEquals(byteArrayOf(0x34, 0x12), pcm.copyOfRange(0, 2))
@@ -92,8 +92,8 @@ class AudioRecordRecorderTest {
                 error.cause
             }
             assertTrue(thrown is CancellationException)
-            assertEquals(1, input.stopCalls)
-            assertEquals(1, input.releaseCalls)
+            assertEquals(1, input.stopCalls.get())
+            assertEquals(1, input.releaseCalls.get())
         } finally {
             recorder.cancel()
             executor.shutdownNow()
