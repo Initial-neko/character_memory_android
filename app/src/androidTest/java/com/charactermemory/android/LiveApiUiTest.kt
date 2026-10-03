@@ -491,6 +491,16 @@ class LiveApiUiTest {
         assertEquals(2, dispatcher.writes.count { it.first.startsWith("/v1/visual/") })
     }
 
+    @Test fun visualToolsExposeExplicitCaptureControlsWithoutStartingCapture() {
+        tap("live-character-rin")
+        tap("live-visual-tools")
+        compose.onNodeWithTag("live-camera-open").assertIsDisplayed().assertIsEnabled()
+        compose.onNodeWithTag("live-screen-share-start").assertIsDisplayed().assertIsEnabled()
+        assertFalse(com.charactermemory.android.screen.ScreenShareStatus.state.value.active)
+        assertFalse(dispatcher.writes.any { it.first.startsWith("/v1/visual/") })
+        screenshot("19-visual-controls", "live-camera-open")
+    }
+
     @Test fun asrDraftStaysEditableAndDoesNotSendUntilTheExistingSendAction() {
         asrResponse = """{"text":"fixture transcript"}"""
         tap("live-character-rin")

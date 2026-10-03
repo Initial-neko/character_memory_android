@@ -5,6 +5,32 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class VoiceCallCoordinatorTest {
+    @Test fun matchedReactionCompletionStopsTimeoutWhileLongAudioIsStillPlaying() = runBlocking {
+        val port = FakePort().apply { playbackGate = CompletableDeferred() }
+        val context = VoiceContextSnapshot(1, VoiceTargetScope.GROUP, "g", "c", true, true)
+        val call = VoiceCallCoordinator(this, { context }, { port }, responseTimeoutMs = 40)
+        call.permission(call.requestStart()!!, true)
+        port.pcm.complete(byteArrayOf(1, 2))
+        withTimeout(2000) { while (port.sent == 0) yield() }
+        call.reply("a", "1", "reply", "alice")
+        call.completed("1")
+        delay(100)
+        assertTrue("Completed server reply must not time out during queued playback", call.state.value.active)
+        call.end(); port.playbackGate!!.complete(Unit)
+        Unit
+    }
+    @Test fun destroyedOwnerStillReleasesNativeRecorder() = runBlocking {
+        val owner = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val port = FakePort()
+        val context = VoiceContextSnapshot(1, VoiceTargetScope.DIRECT, "a", "c", true, true)
+        val call = VoiceCallCoordinator(owner, { context }, { port })
+        call.permission(call.requestStart()!!, true)
+        assertEquals(1, port.captures)
+        owner.cancel()
+        call.end()
+        withTimeout(500) { while (!port.cancelled) yield() }
+        assertFalse(call.state.value.active)
+    }
     @Test fun deniedOrStalePermissionNeverStartsCapture() = runBlocking {
         var context = VoiceContextSnapshot(1, VoiceTargetScope.DIRECT, "a", "c", true, true)
         val port = FakePort()
@@ -62,6 +88,7 @@ class VoiceCallCoordinatorTest {
         var transcribing = false
         var delayedAsr: CompletableDeferred<String>? = null
         var playbackFails = false
+        var playbackGate: CompletableDeferred<Unit>? = null
         override fun recorder(): VoiceRecorderPort = object : VoiceRecorderPort {
             override suspend fun capture(onDurationMs: (Long) -> Unit): ByteArray { captures++; return if (captures == 1) pcm.await() else CompletableDeferred<ByteArray>().await() }
             override fun cancel() { cancelled = true }
@@ -69,7 +96,7 @@ class VoiceCallCoordinatorTest {
         }
         override suspend fun transcribe(pcm: ByteArray): String { transcribing = true; return delayedAsr?.await() ?: "late" }
         override suspend fun send(text: String): String { sent++; return "1" }
-        override suspend fun speak(item: CallEffect.Speak) { if (playbackFails) throw java.io.IOException("broken audio") }
+        override suspend fun speak(item: CallEffect.Speak) { if (playbackFails) throw java.io.IOException("broken audio"); playbackGate?.await() }
         override fun stopPlayback() {}
     }
 }

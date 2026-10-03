@@ -63,7 +63,7 @@ Character Memory Core (the ONE authoritative PersonRuntime)
 
 ## 当前 Android 工程栈
 
-单 app module：Kotlin + Jetpack Compose、ViewModel + StateFlow、Coroutines、OkHttp/SSE、Gson、Coil 与本地 SharedPreferences；JUnit/MockWebServer、Compose UI Test、Android Emulator/ADB。CameraX、原生音频、MediaProjection 和设备凭证属于后续阶段。
+单 app module：Kotlin + Jetpack Compose、ViewModel + StateFlow、Coroutines、OkHttp/SSE、Gson、Coil（含同版本 SVG）与本地 SharedPreferences；JUnit/MockWebServer、Compose UI Test、Android Emulator/ADB。V1 已接入 AudioRecord、Media ASR/TTS、语音通话队列、Camera2 和 MediaProjection；设备凭证仍待 Core 契约。源码完成与当前 CI/真机验收结果分别记录。
 
 先采用 **单 Gradle app module + feature package**，避免为了目录漂亮过早拆多个 Gradle modules。后端不能依赖 Android 私有实现，客户端不能直接操作 PC SQLite。
 

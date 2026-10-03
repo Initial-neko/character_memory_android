@@ -25,7 +25,8 @@ data class VoiceCallState(
 class VoiceCallCoordinator(
     private val scope: CoroutineScope,
     private val contextProvider: () -> VoiceContextSnapshot,
-    private val portFactory: () -> VoiceCallPort
+    private val portFactory: () -> VoiceCallPort,
+    private val responseTimeoutMs: Long = 90_000
 ) {
     private val mutable = MutableStateFlow(VoiceCallState())
     val state = mutable.asStateFlow()
@@ -63,7 +64,9 @@ class VoiceCallCoordinator(
         val oldRecorder = recorder; recorder = null
         val oldSession = session; session = null; capture = null; asr = null
         val previousCleanup = cleanup
-        cleanup = scope.launch {
+        // Native input must be stopped even after the ViewModel's Job is cancelled.
+        // Keep its dispatcher, but give this bounded cleanup its own Job lifetime.
+        cleanup = CoroutineScope(scope.coroutineContext.minusKey(Job)).launch {
             previousCleanup?.join()
             withContext(Dispatchers.IO) { oldRecorder?.cancel() }
             oldSession?.cancelAndJoin()
@@ -122,7 +125,7 @@ class VoiceCallCoordinator(
         effects.forEach { effect -> when (effect) {
             is CallEffect.Send -> {
                 timeout?.cancel()
-                timeout = launchTask { delay(90000); if (valid(ticket)) end("回应超时，通话已结束；请刷新历史确认，勿重复发送") }
+                timeout = launchTask { delay(responseTimeoutMs); if (valid(ticket)) end("回应超时，通话已结束；请刷新历史确认，勿重复发送") }
                 mutable.value = mutable.value.copy(phase = "waiting")
                 launchTask {
                     try {
@@ -150,7 +153,7 @@ class VoiceCallCoordinator(
                 }
             }
         } }
-        if (!turns.waiting) { timeout?.cancel(); timeout = null }
+        if (!turns.awaitingReaction) { timeout?.cancel(); timeout = null }
         if (!speaking) listen(ticket)
     }
 }

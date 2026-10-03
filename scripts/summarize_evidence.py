@@ -26,6 +26,7 @@ P2_SCREENS = (
     "p2-13-asr-draft.png",
     "p2-14-voice-states.png", "p2-15-voice-playback-error.png", "p2-16-tts-playback.png",
     "p2-17-call-listening.png", "p2-18-call-speaking.png",
+    "p2-19-visual-controls.png",
 )
 
 

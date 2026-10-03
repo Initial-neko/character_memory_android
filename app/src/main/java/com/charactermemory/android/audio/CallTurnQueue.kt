@@ -9,6 +9,7 @@ sealed class CallEffect {
 class CallTurnQueue {
     var active = false; private set
     var waiting = false; private set
+    val awaitingReaction get() = waiting && !complete
     val pendingCount get() = pending.size
     private var receipt: String? = null
     private var complete = false
