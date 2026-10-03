@@ -145,7 +145,9 @@ class LiveViewModel(
                 LiveAudioPlayback.blocked = value.phase != "idle" || voice.state.value.phase !in setOf(VoiceCoordinatorPhase.IDLE, VoiceCoordinatorPhase.ERROR, VoiceCoordinatorPhase.DRAFT)
             }
         }
-        if (initialConfig != null) preferences.edit().putString("core", initialConfig.coreUrl).putString("media", initialConfig.mediaUrl).apply()
+        // Persist normalized legacy routing, so upgrades do not keep sending Media requests to Core.
+        val resolvedConfig = mutable.value.config
+        if (resolvedConfig.coreUrl.isNotBlank()) preferences.edit().putString("core", resolvedConfig.coreUrl).putString("media", resolvedConfig.mediaUrl).apply()
         refresh(); checkHealth(); loadSpaceNotifications(); startSpaceNotificationPolling()
     }
 
@@ -240,7 +242,10 @@ class LiveViewModel(
         listOf(false, true).forEach { media ->
             operation(if (media) "media-health" else "core-health") { client ->
                 update { if (media) it.copy(mediaHealth = "检查中") else it.copy(coreHealth = "检查中") }
-                val result = try { client.get("/health", media = media); "可连接" }
+                val result = try {
+                    val health = client.get("/health", media = media)
+                    if (media) ServiceHealth.media(health, client.get("/openapi.json", media = true)) else "可连接"
+                }
                 catch (cancelled: CancellationException) { throw cancelled }
                 catch (error: Exception) { "不可连接：${error.message ?: "请求失败"}" }
                 currentCoroutineContext().ensureActive()

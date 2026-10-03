@@ -12,7 +12,7 @@ android {
         applicationId = "com.charactermemory.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
+        versionCode = 8
         versionName = "0.3.0-v1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

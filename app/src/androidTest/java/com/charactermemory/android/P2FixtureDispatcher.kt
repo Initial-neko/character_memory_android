@@ -93,6 +93,7 @@ internal class P2FixtureDispatcher : Dispatcher() {
         reads.add(path + request.requestUrl?.encodedQuery?.let { "?$it" }.orEmpty())
         return when (path) {
             "/health" -> json("{\"status\":\"ok\"}")
+            "/openapi.json" -> json("""{"paths":{"/v1/chat/messages":{"post":{}}}}""")
             "/v1/characters" -> if (request.requestUrl?.queryParameter("include_deferred") == "true")
                 json("""{"characters":[{"id":"rin","name":"Rin","identity":"摄影师","description":"Fixture character"},{"id":"lex","name":"Lex","identity":"工程师"},{"id":"nova","name":"Nova","deferred":true}],"soft_limit":10,"active_limit":20,"active_total":3,"overflow_count":0}""")
                 else json("""{"characters":[{"id":"rin","name":"Rin","identity":"摄影师","description":"Fixture character"},{"id":"lex","name":"Lex","identity":"工程师"}],"soft_limit":10,"active_limit":20,"active_total":2,"overflow_count":0}""")

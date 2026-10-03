@@ -501,6 +501,16 @@ class LiveApiUiTest {
         screenshot("19-visual-controls", "live-camera-open")
     }
 
+    @Test fun mediaAddressPointingAtCoreIsRejectedEvenWhenHealthReturns200() {
+        compose.runOnUiThread { model.saveConfig(config.coreUrl, config.coreUrl) }
+        compose.waitUntil(10_000) { model.state.value.mediaHealth.contains("不是 Media 服务") }
+        assertEquals("可连接", model.state.value.coreHealth)
+        assertTrue(model.state.value.mediaHealth.startsWith("不可用"))
+        assertTrue(dispatcher.requests.contains("GET /openapi.json"))
+        screenshot("20-media-routing-error", "live-settings")
+        assertEquals(0, asrRequests.get())
+    }
+
     @Test fun asrDraftStaysEditableAndDoesNotSendUntilTheExistingSendAction() {
         asrResponse = """{"text":"fixture transcript"}"""
         tap("live-character-rin")
