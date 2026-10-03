@@ -19,6 +19,7 @@ import com.charactermemory.android.audio.*
 @Composable
 internal fun LiveVoiceInput(model: LiveViewModel) {
     val state by model.voice.state.collectAsStateWithLifecycle()
+    val settings by model.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var permissionTicket by remember { mutableStateOf<VoiceTaskTicket?>(null) }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -34,7 +35,7 @@ internal fun LiveVoiceInput(model: LiveViewModel) {
                     if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
                         model.voice.onPermissionResult(next, true)
                     else { permissionTicket = next; permission.launch(Manifest.permission.RECORD_AUDIO) }
-                }, enabled = model.state.value.config.mediaUrl.isNotBlank(), modifier = Modifier.testTag("live-asr-start")) { Text("语音输入") }
+                }, enabled = settings.config.mediaUrl.isNotBlank(), modifier = Modifier.testTag("live-asr-start")) { Text("语音输入") }
             }
             if (state.phase == VoiceCoordinatorPhase.RECORDING && ticket != null) {
                 TextButton(onClick = { model.voice.stop(ticket) }, modifier = Modifier.testTag("live-asr-stop")) {
