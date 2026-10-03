@@ -85,7 +85,10 @@ internal class P2FixtureDispatcher : Dispatcher() {
     private fun post(): String {
         val entries = mutableListOf<String>()
         if (commented.get()) entries += """{"id":5,"actor_type":"USER","author":{"id":"user","name":"我"},"content":"fixture comment","reply_to_comment_id":null}"""
-        if (externalReply.get()) entries += """{"id":6,"actor_type":"CHARACTER","author":{"id":"rin","name":"Rin"},"content":"fixture external reply"}"""
+        if (externalReply.get()) {
+            val replyTarget = if (commented.get()) "5" else "null"
+            entries += """{"id":6,"actor_type":"CHARACTER","author":{"id":"rin","name":"Rin"},"content":"fixture external reply","reply_to_comment_id":$replyTarget}"""
+        }
         val comments = entries.joinToString(",", "[", "]")
         return """{"id":1,"character_id":"rin","author":{"id":"rin","name":"Rin"},"content":"fixture space post","created_at":"2026-10-02T10:00:00+08:00","media_items":[],"comments":$comments,"like_count":0,"likes":[]}"""
     }

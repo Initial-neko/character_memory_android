@@ -108,6 +108,17 @@ class LiveApiUiTest {
         if (::preferenceName.isInitialized) compose.activity.getSharedPreferences(preferenceName, 0).edit().clear().commit()
     }
 
+    private fun dismissIme() {
+        // Espresso.closeSoftKeyboard() can wait for an Activity root that has no focus
+        // while the IME owns the focused window. Request hiding directly from Android.
+        compose.runOnUiThread {
+            val service = compose.activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                as android.view.inputmethod.InputMethodManager
+            service.hideSoftInputFromWindow(compose.activity.window.decorView.windowToken, 0)
+        }
+        compose.waitForIdle()
+    }
+
     private fun waitTag(tag: String) {
         compose.waitUntil(10_000) { compose.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty() }
     }
@@ -201,13 +212,15 @@ class LiveApiUiTest {
             compose.waitUntil(10_000) { model.state.value.messages.any { it.text("id") == "10" } }
             assertEquals(1, model.state.value.messages.count { it.text("id") == "1" })
             assertEquals(1, model.state.value.messages.count { it.text("id") == "10" })
+            val userBubble = compose.onNodeWithTag("live-message-bubble-user-10").fetchSemanticsNode().boundsInWindow
+            assertTrue("Direct messages should be left/right aligned by sender", userBubble.left > characterBubble.left)
             assertEquals(1, dispatcher.writes.count { it.first == "/v1/chat/messages" })
             assertEquals("rin", dispatcher.writes.first().second.text("character_id"))
             assertTrue(dispatcher.writes.first().second.text("conversation_id").isNotBlank())
             closeActualIme()
             assertBubbleAlignment("10", true)
         } finally {
-            androidx.test.espresso.Espresso.closeSoftKeyboard()
+            dismissIme()
             if (original == "0" || original == "1") device.executeShellCommand("settings put secure show_ime_with_hard_keyboard $original")
             else device.executeShellCommand("settings delete secure show_ime_with_hard_keyboard")
         }
@@ -316,4 +329,21 @@ class LiveApiUiTest {
         assertTrue(model.state.value.posts.first().getAsJsonArray("comments").any { it.asJsonObject.text("id") == "5" })
         input.assertTextContains("draft B")
     }
+    @Test fun confirmedSpaceCommentReceivesAsyncReplyWithoutManualRefresh() {
+        compose.runOnUiThread { model.show(LivePage.SPACE) }
+        compose.waitUntil(10_000) { model.state.value.posts.isNotEmpty() }
+        compose.onNodeWithTag("live-space-comment-1").performScrollTo().performTextInput("fixture comment")
+        tap("live-space-comment-send-1", true)
+        compose.waitUntil(10_000) { model.state.value.commentReceipts["1"] != null }
+        // The status lives below the comment editor in a scrollable feed item.
+        compose.onNodeWithTag("live-space-auto-refresh-1").performScrollTo().assertIsDisplayed()
+        dispatcher.externalReply.set(true)
+        compose.waitUntil(17_000) {
+            model.state.value.posts.firstOrNull()?.getAsJsonArray("comments")?.any { item ->
+                item.asJsonObject.text("id") == "6" && item.asJsonObject.text("reply_to_comment_id") == "5"
+            } == true
+        }
+        assertEquals(1, dispatcher.writes.count { it.first == "/v1/space/posts/1/comments" })
+    }
+
 }

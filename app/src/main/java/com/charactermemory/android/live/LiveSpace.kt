@@ -27,6 +27,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import com.charactermemory.android.data.*
 import com.google.gson.JsonObject
+import kotlinx.coroutines.delay
 
 @Composable
 internal fun LiveSpace(state: LiveState, model: LiveViewModel) {
@@ -58,7 +59,23 @@ private fun LivePost(post: JsonObject, state: LiveState, model: LiveViewModel) {
     LaunchedEffect(receipt?.id) {
         if (receipt != null && receipt.id != handledReceipt) {
             if (LiveRules.shouldClearCommentDraft(comment, reply, receipt)) { comment = ""; reply = null }
+            showComments = true
             handledReceipt = receipt.id
+        }
+    }
+    // Space reactions are asynchronous on Core. After a confirmed human comment, refresh only
+    // this visible post for a bounded period; never create a second write or permanent poller.
+    // LaunchedEffect is cancelled when the post/page leaves composition or comments collapse.
+    LaunchedEffect(id, receipt?.id, showComments) {
+        if (receipt == null || !showComments) return@LaunchedEffect
+        repeat(15) {
+            delay(6_000L)
+            val currentPost = model.state.value.posts.firstOrNull { it.text("id") == id } ?: return@LaunchedEffect
+            if (currentPost.items("comments").any { candidate ->
+                candidate.text("reply_to_comment_id") == receipt.id &&
+                    candidate.text("actor_type") == "CHARACTER"
+            }) return@LaunchedEffect
+            model.refreshPost(id)
         }
     }
     LivePanelCard(Modifier.fillMaxWidth().testTag("live-space-post-$id")) {
@@ -111,6 +128,10 @@ private fun LivePost(post: JsonObject, state: LiveState, model: LiveViewModel) {
                     }
                 }
                 }
+            }
+            if (receipt != null && showComments) {
+                Text("发送后自动检查人物回复（约 90 秒内）；离开页面即停止。", color = LiveMuted,
+                    style = MaterialTheme.typography.labelSmall, modifier = Modifier.testTag("live-space-auto-refresh-$id"))
             }
         }
     }
