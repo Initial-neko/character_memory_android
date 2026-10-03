@@ -34,6 +34,7 @@ import androidx.test.uiautomator.UiDevice
 import com.charactermemory.android.data.CoreApi
 import com.charactermemory.android.data.ServerConfig
 import com.charactermemory.android.data.text
+import com.charactermemory.android.data.items
 import com.charactermemory.android.live.LiveApp
 import com.charactermemory.android.live.LivePage
 import com.charactermemory.android.live.LiveViewModel
@@ -724,4 +725,21 @@ class LiveApiUiTest {
     }
 
 
+    private fun assertOpenedNotificationPost() {
+        val state = model.state.value
+        assertEquals(0, state.spaceUnreadCount)
+        assertTrue(state.spaceNotifications.none { it.text("id") == "7" })
+        assertEquals("1", state.focusedSpacePostId)
+        assertEquals("59", state.focusedSpaceCommentId)
+        val post = state.posts.single()
+        assertEquals("fixture space post", post.text("content"))
+        assertEquals("rin", post.getAsJsonObject("author").text("id"))
+        assertEquals("2026-10-02T10:00:00+08:00", post.text("created_at"))
+        assertEquals("media-1", post.items("media_items").single().text("media_id"))
+        assertEquals(1, post.get("like_count").asInt)
+        assertEquals("rin", post.getAsJsonArray("likes").single().asJsonObject.get("character_id").asString)
+        val comments = post.items("comments")
+        assertEquals(listOf("51", "59"), comments.map { it.text("id") })
+        assertEquals("我看到你喊我啦。", comments.single { it.text("id") == "59" }.text("content"))
+    }
 }
