@@ -561,9 +561,9 @@ class LiveApiUiTest {
         tap("live-space-comments-toggle-1", true)
         tap("live-space-mention-toggle-1", true)
         compose.onNodeWithTag("live-space-mention-1-nova").assertIsDisplayed()
-        tap("live-space-mention-1-rin")
+        compose.onNodeWithTag("live-space-mention-1-rin").performClick()
         tap("live-space-mention-toggle-1", true)
-        tap("live-space-mention-1-lex")
+        compose.onNodeWithTag("live-space-mention-1-lex").performClick()
         compose.onNodeWithTag("live-space-mention-chip-1-rin").assertIsDisplayed()
         compose.onNodeWithTag("live-space-mention-chip-1-lex").assertIsDisplayed()
         screenshot("12-space-mentions", "live-space")
@@ -596,7 +596,7 @@ class LiveApiUiTest {
                 model.state.value.spaceNotifications.isNotEmpty()
         }
         assertTrue(dispatcher.reads.any { it == "/v1/space/notifications?unread_only=true&limit=50" })
-        compose.onNodeWithTag("live-space-unread-badge").assertIsDisplayed().assertTextContains("1", substring = true)
+        compose.onNodeWithTag("live-space-unread-badge").performScrollTo().assertIsDisplayed().assertTextContains("1", substring = true)
         tap("live-space-notification-7", true)
         compose.waitUntil(10_000) { dispatcher.notificationRead.get() && model.state.value.spaceUnreadCount == 0 }
         assertEquals("1", model.state.value.focusedSpacePostId)
