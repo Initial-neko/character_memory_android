@@ -283,9 +283,10 @@ class LiveViewModel(
                 val query = mutableMapOf("limit" to "50")
                 before?.let { query["before_id"] = it }
                 if (!target.group) query["character_id"] = target.id
+                val atRequest = state.value.messages.map { it.deepCopy() }
                 val page = client.get(if (target.group) "/v1/groups/${pathId(target.id)}/history" else "/v1/chat/history-page", query)
                 currentCoroutineContext().ensureActive()
-                update { it.copy(messages = ConversationProjection.merge(it.messages, page.items("messages")),
+                update { it.copy(messages = ConversationProjection.reconcileHistory(it.messages, page.items("messages"), atRequest),
                     historyCursor = if (older || !historyPaged) LiveRules.nextCursor(page) else it.historyCursor,
                     groupTurnId = if (target.group && it.groupTurnId == null && "send" !in it.busy)
                         page.items("messages").lastOrNull { message -> message.text("role") == "user" }?.text("turn_id")?.takeIf { id -> id.isNotBlank() }

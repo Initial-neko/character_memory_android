@@ -11,6 +11,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PersistedVoiceMessageTest {
+    @Test fun latePendingHistoryCannotEraseReadySseButAFreshFailureCanClearAudio() {
+        val pending = json("""{"id":44,"voice_status":"pending","voice_media_id":null,"voice_error":null}""")
+        val ready = json("""{"id":44,"voice_status":"ready","voice_media_id":"asset-1","voice_duration_ms":1500,"voice_error":null}""")
+        val reconciled = ConversationProjection.reconcileHistory(listOf(ready), listOf(pending), listOf(pending)).single()
+        assertEquals("ready", reconciled.text("voice_status"))
+        assertEquals("asset-1", reconciled.text("voice_media_id"))
+        val failed = json("""{"id":44,"voice_status":"failed","voice_media_id":null,"voice_duration_ms":null,"voice_error":"asset failed"}""")
+        val fresh = ConversationProjection.reconcileHistory(listOf(reconciled), listOf(failed), listOf(reconciled)).single()
+        assertEquals("failed", fresh.text("voice_status"))
+        assertTrue(fresh.get("voice_media_id").isJsonNull)
+    }
     private fun json(value: String) = JsonParser.parseString(value).asJsonObject
 
     @Test fun directAndGroupSsePromoteAllFourCanonicalVoiceFields() {
