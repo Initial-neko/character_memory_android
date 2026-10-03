@@ -34,4 +34,3 @@ internal fun voiceMediaPath(mediaId: String?): String? {
     val id = mediaId?.takeIf { it.isNotBlank() } ?: return null
     return "/v1/media/${URLEncoder.encode(id, "UTF-8").replace("+", "%20")}"
 }
-

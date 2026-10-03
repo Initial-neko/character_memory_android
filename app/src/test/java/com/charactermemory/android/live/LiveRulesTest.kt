@@ -45,7 +45,7 @@ class LiveRulesTest {
         assertFalse(LiveRules.shouldClearCommentDraft("draft A", null, receipt))
     }
     @Test fun acceptedMentionCommentOnlyClearsTheSameMentionSelection() {
-        val receipt = CommentReceipt("c2", "draft A", 7L, listOf("rin", "mei"))
+        val receipt = CommentReceipt("c2", "draft A", 7L, mentions = listOf("rin", "mei"))
         assertTrue(LiveRules.shouldClearCommentDraft("draft A", 7L, listOf("rin", "mei"), receipt))
         assertFalse(LiveRules.shouldClearCommentDraft("draft A", 7L, listOf("rin"), receipt))
     }
