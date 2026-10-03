@@ -9,6 +9,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 /** Synthetic payloads mirror Core508c6f0 route schemas, not private user data. */
 internal class P2FixtureDispatcher : Dispatcher() {
@@ -16,11 +17,13 @@ internal class P2FixtureDispatcher : Dispatcher() {
     val sent = AtomicBoolean(false)
     val commented = AtomicBoolean(false)
     val externalReply = AtomicBoolean(false)
+    val postReads = AtomicInteger(0)
     @Volatile var holdPostRead = false
     @Volatile var commentDelayMs = 0L
     val postReadStarted = CountDownLatch(1)
     val releasePostRead = CountDownLatch(1)
     var coreOffline = false
+    var corruptImage = false
     private fun json(body: String, status: Int = 200) = MockResponse()
         .setResponseCode(status).setHeader("Content-Type", "application/json").setBody(body)
 
@@ -42,7 +45,8 @@ internal class P2FixtureDispatcher : Dispatcher() {
                 path == "/v1/ensembles/e1/confirm" -> json("""{"build":{"group_id":"g1","status":"ACTIVE","group":{"id":"g1","name":"Fixture Group","member_ids":["rin","lex"],"status":"ACTIVE"},"drafts":[]}}""")
                 path == "/v1/ensembles/e1/cancel" -> json("""{"build":{"group_id":"e1","status":"CANCELLED","drafts":[]}}""")
                 path == "/v1/characters/rin/images/rewrite" -> json("""{"ok":true,"character_id":"rin","purpose":"SCENE","prompt":"A quiet coffee shop","instruction":"coffee","used_avatar_reference":false}""")
-                path == "/v1/characters/rin/images/generate" -> json("""{"ok":true,"character_id":"rin","purpose":"SCENE","prompt":"A quiet coffee shop","image":{"filename":"fixture.png","data_url":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZUAAAAASUVORK5CYII=","mime_type":"image/png","size_bytes":68,"media_id":null,"url":"","source":"AI_GENERATED_DRAFT"}}""")
+                path == "/v1/characters/rin/images/generate" && corruptImage -> json("""{"ok":true,"image":{"data_url":"data:image/jpeg;base64,YWJj","mime_type":"image/jpeg"}}""")
+                path == "/v1/characters/rin/images/generate" -> json("""{"ok":true,"character_id":"rin","purpose":"SCENE","prompt":"A quiet coffee shop","image":{"filename":"fixture.png","data_url":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR4nGMwqrj0nxLMMGrAqAGjBgwXAwDHCHsfIPP/yQAAAABJRU5ErkJggg==","mime_type":"image/png","size_bytes":82,"media_id":null,"url":"","source":"AI_GENERATED_DRAFT"}}""")
                 path == "/v1/space/posts/1/comments" -> {
                     commented.set(true)
                     json("""{"comment":{"id":5,"content":"fixture comment","actor_type":"USER","author":{"id":"user","name":"我"}},"post":${post()},"thread_replies":[]}""")
@@ -72,6 +76,7 @@ internal class P2FixtureDispatcher : Dispatcher() {
             "/v1/characters/rin/persona" -> json("""{"id":"rin","name":"Rin","description":"Fixture persona"}""")
             "/v1/space/posts" -> json("""{"posts":[${post()}],"total":1,"has_more":false,"next_before_id":null,"max_feed_items":10}""")
             "/v1/space/posts/1" -> {
+                postReads.incrementAndGet()
                 val snapshot = post()
                 if (holdPostRead) { postReadStarted.countDown(); check(releasePostRead.await(10, TimeUnit.SECONDS)) }
                 json("""{"post":$snapshot}""")

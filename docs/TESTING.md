@@ -9,7 +9,7 @@ Status: **P1 historical CI executed; P2 source and fixture automation added; cur
 | 证据 | P1 | P2 |
 |---|---|---|
 | JVM | ≥13，0 失败/错误/跳过 | ≥27（transport/projection 16 + LiveRules 9 + time formatting 2），0 失败/错误/跳过 |
-| 模拟器 | PrototypeUiTest ≥5 | LiveApiUiTest ≥6，注入 HTTPS MockWebServer |
+| 模拟器 | PrototypeUiTest ≥5 | LiveApiUiTest ≥9，注入 HTTPS MockWebServer；含 Space 自动回复/收起停止轮询与损坏图片禁发 |
 | 截图 | p1-01 至 p1-12，固定完整文件名 | 下列 9 个固定文件名 |
 | 真实 Core/真机媒体 | NOT RUN | 用户后端验收；媒体 P3–P5 尚未实现 |
 

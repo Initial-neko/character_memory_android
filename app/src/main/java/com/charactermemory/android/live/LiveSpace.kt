@@ -3,6 +3,7 @@ package com.charactermemory.android.live
 import android.media.MediaPlayer
 import android.widget.MediaController
 import android.widget.VideoView
+import android.os.SystemClock
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,6 +24,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import com.charactermemory.android.data.*
@@ -55,6 +57,8 @@ private fun LivePost(post: JsonObject, state: LiveState, model: LiveViewModel) {
     var showComments by rememberSaveable(state.config.coreUrl, id) { mutableStateOf(false) }
     val comments = post.items("comments")
     val receipt = state.commentReceipts[id]
+    val owner = LocalLifecycleOwner.current
+    val replyDeadline = remember(state.config.coreUrl, id, receipt?.id) { SystemClock.elapsedRealtime() + 90_000L }
     var handledReceipt by rememberSaveable(state.config.coreUrl, id) { mutableStateOf(receipt?.id) }
     LaunchedEffect(receipt?.id) {
         if (receipt != null && receipt.id != handledReceipt) {
@@ -66,16 +70,19 @@ private fun LivePost(post: JsonObject, state: LiveState, model: LiveViewModel) {
     // Space reactions are asynchronous on Core. After a confirmed human comment, refresh only
     // this visible post for a bounded period; never create a second write or permanent poller.
     // LaunchedEffect is cancelled when the post/page leaves composition or comments collapse.
-    LaunchedEffect(id, receipt?.id, showComments) {
+    LaunchedEffect(state.config.coreUrl, id, receipt?.id, showComments, owner) {
         if (receipt == null || !showComments) return@LaunchedEffect
-        repeat(15) {
-            delay(6_000L)
-            val currentPost = model.state.value.posts.firstOrNull { it.text("id") == id } ?: return@LaunchedEffect
-            if (currentPost.items("comments").any { candidate ->
-                candidate.text("reply_to_comment_id") == receipt.id &&
-                    candidate.text("actor_type") == "CHARACTER"
-            }) return@LaunchedEffect
-            model.refreshPost(id)
+        owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (SystemClock.elapsedRealtime() < replyDeadline) {
+                val currentPost = model.state.value.posts.firstOrNull { it.text("id") == id } ?: break
+                if (currentPost.items("comments").any { candidate ->
+                    candidate.text("reply_to_comment_id") == receipt.id &&
+                        candidate.text("actor_type") == "CHARACTER"
+                }) break
+                delay(6_000L)
+                if (SystemClock.elapsedRealtime() >= replyDeadline) break
+                model.refreshPost(id)
+            }
         }
     }
     LivePanelCard(Modifier.fillMaxWidth().testTag("live-space-post-$id")) {
@@ -130,7 +137,7 @@ private fun LivePost(post: JsonObject, state: LiveState, model: LiveViewModel) {
                 }
             }
             if (receipt != null && showComments) {
-                Text("发送后自动检查人物回复（约 90 秒内）；离开页面即停止。", color = LiveMuted,
+                Text("评论已发送，正在等待人物回复。", color = LiveMuted,
                     style = MaterialTheme.typography.labelSmall, modifier = Modifier.testTag("live-space-auto-refresh-$id"))
             }
         }

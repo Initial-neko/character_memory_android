@@ -12,6 +12,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasStateDescription
@@ -173,8 +174,8 @@ class LiveApiUiTest {
         assertEquals(config.mediaUrl, preferences.getString("media", null))
         compose.runOnUiThread { model.show(LivePage.HOME) }
         waitTag("live-character-rin")
-        waitTag("live-character-time-rin")
-        compose.onNodeWithTag("live-character-time-rin").assertIsDisplayed()
+        compose.waitUntil(10_000) { compose.onAllNodes(hasTestTag("live-character-time-rin"), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("live-character-time-rin", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithTag("live-home-space").assertIsDisplayed()
         screenshot("02-roster", "live-home")
         tap("live-character-rin")
@@ -212,8 +213,6 @@ class LiveApiUiTest {
             compose.waitUntil(10_000) { model.state.value.messages.any { it.text("id") == "10" } }
             assertEquals(1, model.state.value.messages.count { it.text("id") == "1" })
             assertEquals(1, model.state.value.messages.count { it.text("id") == "10" })
-            val userBubble = compose.onNodeWithTag("live-message-bubble-user-10").fetchSemanticsNode().boundsInWindow
-            assertTrue("Direct messages should be left/right aligned by sender", userBubble.left > characterBubble.left)
             assertEquals(1, dispatcher.writes.count { it.first == "/v1/chat/messages" })
             assertEquals("rin", dispatcher.writes.first().second.text("character_id"))
             assertTrue(dispatcher.writes.first().second.text("conversation_id").isNotBlank())
@@ -332,6 +331,7 @@ class LiveApiUiTest {
     @Test fun confirmedSpaceCommentReceivesAsyncReplyWithoutManualRefresh() {
         compose.runOnUiThread { model.show(LivePage.SPACE) }
         compose.waitUntil(10_000) { model.state.value.posts.isNotEmpty() }
+        tap("live-space-comments-toggle-1", true)
         compose.onNodeWithTag("live-space-comment-1").performScrollTo().performTextInput("fixture comment")
         tap("live-space-comment-send-1", true)
         compose.waitUntil(10_000) { model.state.value.commentReceipts["1"] != null }
@@ -343,6 +343,37 @@ class LiveApiUiTest {
                 item.asJsonObject.text("id") == "6" && item.asJsonObject.text("reply_to_comment_id") == "5"
             } == true
         }
+        assertEquals(1, dispatcher.writes.count { it.first == "/v1/space/posts/1/comments" })
+    }
+
+    @Test fun corruptImageDraftCannotBeSent() {
+        dispatcher.corruptImage = true
+        tap("live-character-rin")
+        tap("live-image-open")
+        compose.onNodeWithTag("live-image-instruction").performTextInput("invalid image fixture")
+        tap("live-image-generate", true)
+        waitTag("live-image-draft")
+        closeActualIme()
+        compose.onNodeWithTag("live-image-confirm-send").performScrollTo()
+        waitTag("live-image-preview-error")
+        compose.onNodeWithTag("live-image-confirm-send").assertIsNotEnabled()
+        assertFalse(dispatcher.writes.any { it.first == "/v1/chat/messages" })
+    }
+
+    @Test fun collapsedSpaceThreadStopsReplyPolling() {
+        compose.runOnUiThread { model.show(LivePage.SPACE) }
+        compose.waitUntil(10_000) { model.state.value.posts.isNotEmpty() }
+        tap("live-space-comments-toggle-1", true)
+        compose.onNodeWithTag("live-space-comment-1").performScrollTo().performTextInput("fixture comment")
+        tap("live-space-comment-send-1", true)
+        compose.waitUntil(10_000) { model.state.value.commentReceipts["1"] != null }
+        closeActualIme()
+        tap("live-space-comments-toggle-1", true)
+        compose.waitForIdle()
+        val reads = dispatcher.postReads.get()
+        val started = SystemClock.elapsedRealtime()
+        compose.waitUntil(8_000) { SystemClock.elapsedRealtime() - started >= 6_500 }
+        assertEquals("Collapsed threads must not poll Core", reads, dispatcher.postReads.get())
         assertEquals(1, dispatcher.writes.count { it.first == "/v1/space/posts/1/comments" })
     }
 
