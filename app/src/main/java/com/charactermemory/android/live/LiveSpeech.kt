@@ -19,6 +19,7 @@ internal fun LiveSpeechButton(text: String, owner: String, model: LiveViewModel,
     val context = LocalContext.current.applicationContext
     val lifecycle = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
+    val state by model.state.collectAsState()
     var job by remember(owner, text) { mutableStateOf<Job?>(null) }
     var cached by remember(owner, text) { mutableStateOf<File?>(null) }
     var error by remember(owner, text) { mutableStateOf<String?>(null) }
@@ -54,7 +55,7 @@ internal fun LiveSpeechButton(text: String, owner: String, model: LiveViewModel,
             catch (failure: Exception) { if (ticket == generation) error = "朗读失败，点击重试" }
             finally { file?.delete(); if (ticket == generation) job = null }
         }
-    }, enabled = !LiveAudioPlayback.blocked && model.state.value.config.mediaUrl.isNotBlank() && text.trim().length in 1..4000,
+    }, enabled = !LiveAudioPlayback.blocked && state.config.mediaUrl.isNotBlank() && text.trim().length in 1..4000,
         modifier = Modifier.testTag(tag)) {
         Text(if (job?.isActive == true) "取消合成" else error ?: "朗读 · ${LiveAudioPlayback.status(owner)}")
     }
