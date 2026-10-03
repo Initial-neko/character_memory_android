@@ -235,6 +235,18 @@ class PrototypeUiTest {
                 ViewCompat.getRootWindowInsets(compose.activity.window.decorView)
                     ?.isVisible(WindowInsetsCompat.Type.ime()) == true
             }
+            // OS visibility is dispatched before Compose applies the animated
+            // inset to layout. Await the measured layout, not just OS visibility;
+            // a genuinely covered composer still fails this bounded wait.
+            compose.waitUntil(timeoutMillis = 10_000L) {
+                val decor = compose.activity.window.decorView
+                val bottom = ViewCompat.getRootWindowInsets(decor)
+                    ?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
+                val keyboardTop = decor.height - bottom
+                bottom > 0 && listOf("chat-input", "chat-send").all { tag ->
+                    compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInWindow.bottom <= keyboardTop + 8f
+                }
+            }
             compose.onNodeWithTag("chat-send").assertIsDisplayed()
             val decor = compose.activity.window.decorView
             val imeHeight = ViewCompat.getRootWindowInsets(decor)
