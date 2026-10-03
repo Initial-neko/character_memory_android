@@ -37,6 +37,7 @@ import com.charactermemory.android.data.text
 import com.charactermemory.android.live.LiveApp
 import com.charactermemory.android.live.LivePage
 import com.charactermemory.android.live.LiveViewModel
+import com.charactermemory.android.live.SpaceReplyWindow
 import com.charactermemory.android.live.refreshPost
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -231,7 +232,11 @@ class LiveApiUiTest {
         compose.waitUntil(10_000) { model.state.value.messages.any { it.text("id") == "1" } }
         assertBubbleAlignment("1", false)
         screenshot("09-group-chat", "live-chat")
+        tap("live-chat-input")
         compose.onNodeWithTag("live-chat-input").performTextInput("fixture send")
+        compose.waitUntil(10_000) { imeBottom > 0 && model.state.value.composeText == "fixture send" }
+        closeActualIme()
+        compose.onNodeWithTag("live-chat-send").assertIsEnabled()
         tap("live-chat-send")
         compose.waitUntil(10_000) { dispatcher.writes.any { it.first == "/v1/groups/g1/messages" } }
         compose.runOnUiThread { model.show(LivePage.SPACE) }
@@ -375,6 +380,21 @@ class LiveApiUiTest {
         compose.waitUntil(8_000) { SystemClock.elapsedRealtime() - started >= 6_500 }
         assertEquals("Collapsed threads must not poll Core", reads, dispatcher.postReads.get())
         assertEquals(1, dispatcher.writes.count { it.first == "/v1/space/posts/1/comments" })
+        // Expire this confirmed receipt, dispose its page, and reopen the thread.
+        // A new composition must never turn the same receipt into another 90s window.
+        compose.runOnUiThread {
+            model.update { current -> current.copy(commentReceipts = current.commentReceipts.mapValues { (_, receipt) ->
+                receipt.copy(replyWindow = SpaceReplyWindow(SystemClock.elapsedRealtime() - 90_000L))
+            }) }
+            model.show(LivePage.HOME)
+        }
+        waitTag("live-home")
+        compose.runOnUiThread { model.show(LivePage.SPACE) }
+        compose.waitUntil(10_000) { model.state.value.posts.isNotEmpty() }
+        tap("live-space-comments-toggle-1", true)
+        val reopened = SystemClock.elapsedRealtime()
+        compose.waitUntil(8_000) { SystemClock.elapsedRealtime() - reopened >= 6_500 }
+        assertEquals("Expired receipts must not renew when their page reopens", reads, dispatcher.postReads.get())
     }
 
 }

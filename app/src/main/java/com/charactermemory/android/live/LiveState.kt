@@ -11,7 +11,7 @@ import java.time.OffsetDateTime
 enum class LivePage { HOME, CHAT, SETTINGS, CHARACTER, ENSEMBLE, SPACE, IMAGE, DETAILS }
 data class ChatTarget(val id: String, val name: String, val group: Boolean, val conversationId: String,
     val memberIds: List<String> = emptyList())
-data class CommentReceipt(val id: String, val draftText: String, val replyTo: Long?)
+data class CommentReceipt(val id: String, val draftText: String, val replyTo: Long?, val replyWindow: SpaceReplyWindow? = null)
 
 data class LiveState(
     val config: ServerConfig,

@@ -138,7 +138,7 @@ fun LiveViewModel.comment(postId: String, content: String, replyTo: Long? = null
                 val comments = LiveRules.mergeRecords(post.items("comments"), listOf(comment))
                 add("comments", com.google.gson.JsonArray().apply { comments.forEach { add(it) } })
             }
-        }, commentReceipts = current.commentReceipts + (postId to CommentReceipt(receiptId, content, replyTo)),
+        }, commentReceipts = current.commentReceipts + (postId to CommentReceipt(receiptId, content, replyTo, SpaceReplyWindow(android.os.SystemClock.elapsedRealtime()))),
             confirmedComments = current.confirmedComments + (postId to LiveRules.mergeRecords(current.confirmedComments[postId].orEmpty(), listOf(comment))),
             notice = "评论已保存；人物回复请刷新查看。") }
     }

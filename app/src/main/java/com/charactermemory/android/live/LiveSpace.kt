@@ -58,7 +58,8 @@ private fun LivePost(post: JsonObject, state: LiveState, model: LiveViewModel) {
     val comments = post.items("comments")
     val receipt = state.commentReceipts[id]
     val owner = LocalLifecycleOwner.current
-    val replyDeadline = remember(state.config.coreUrl, id, receipt?.id) { SystemClock.elapsedRealtime() + 90_000L }
+    val replyWindow = receipt?.replyWindow
+    var awaitingReply by remember(receipt?.id) { mutableStateOf(false) }
     var handledReceipt by rememberSaveable(state.config.coreUrl, id) { mutableStateOf(receipt?.id) }
     LaunchedEffect(receipt?.id) {
         if (receipt != null && receipt.id != handledReceipt) {
@@ -71,19 +72,21 @@ private fun LivePost(post: JsonObject, state: LiveState, model: LiveViewModel) {
     // this visible post for a bounded period; never create a second write or permanent poller.
     // LaunchedEffect is cancelled when the post/page leaves composition or comments collapse.
     LaunchedEffect(state.config.coreUrl, id, receipt?.id, showComments, owner) {
-        if (receipt == null || !showComments) return@LaunchedEffect
-        owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            while (SystemClock.elapsedRealtime() < replyDeadline) {
+        if (receipt == null || replyWindow == null || !showComments) return@LaunchedEffect
+        try { owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (replyWindow.isOpen(SystemClock.elapsedRealtime())) {
                 val currentPost = model.state.value.posts.firstOrNull { it.text("id") == id } ?: break
                 if (currentPost.items("comments").any { candidate ->
                     candidate.text("reply_to_comment_id") == receipt.id &&
                         candidate.text("actor_type") == "CHARACTER"
                 }) break
+                awaitingReply = true
                 delay(6_000L)
-                if (SystemClock.elapsedRealtime() >= replyDeadline) break
+                if (!replyWindow.isOpen(SystemClock.elapsedRealtime())) break
                 model.refreshPost(id)
             }
-        }
+            awaitingReply = false
+        } } finally { awaitingReply = false }
     }
     LivePanelCard(Modifier.fillMaxWidth().testTag("live-space-post-$id")) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -136,7 +139,7 @@ private fun LivePost(post: JsonObject, state: LiveState, model: LiveViewModel) {
                 }
                 }
             }
-            if (receipt != null && showComments) {
+            if (awaitingReply && showComments) {
                 Text("评论已发送，正在等待人物回复。", color = LiveMuted,
                     style = MaterialTheme.typography.labelSmall, modifier = Modifier.testTag("live-space-auto-refresh-$id"))
             }

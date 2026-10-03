@@ -26,6 +26,17 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Restore stable acceptance signing key
+        env:
+          ACCEPTANCE_KEYSTORE: ${{ secrets.ANDROID_ACCEPTANCE_KEYSTORE }}
+        run: |
+          if [ -n "$ACCEPTANCE_KEYSTORE" ]; then
+            mkdir -p "$HOME/.android"
+            printf '%s' "$ACCEPTANCE_KEYSTORE" | base64 --decode > "$HOME/.android/debug.keystore"
+          elif [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            echo "Main delivery requires ANDROID_ACCEPTANCE_KEYSTORE" >&2
+            exit 1
+          fi
       - uses: android-actions/setup-android@v4
         with:
           packages: platform-tools
@@ -100,6 +111,17 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Restore stable acceptance signing key
+        env:
+          ACCEPTANCE_KEYSTORE: ${{ secrets.ANDROID_ACCEPTANCE_KEYSTORE }}
+        run: |
+          if [ -n "$ACCEPTANCE_KEYSTORE" ]; then
+            mkdir -p "$HOME/.android"
+            printf '%s' "$ACCEPTANCE_KEYSTORE" | base64 --decode > "$HOME/.android/debug.keystore"
+          elif [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            echo "Main delivery requires ANDROID_ACCEPTANCE_KEYSTORE" >&2
+            exit 1
+          fi
       - uses: android-actions/setup-android@v4
         with:
           packages: platform-tools
