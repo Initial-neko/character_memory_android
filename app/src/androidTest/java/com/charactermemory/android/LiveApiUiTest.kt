@@ -879,9 +879,14 @@ class LiveApiUiTest {
         compose.waitUntil(10000) { model.state.value.streamStatus == "已连接" }
         tap("live-call-start")
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        val grant = device.wait(androidx.test.uiautomator.Until.findObject(androidx.test.uiautomator.By.res(
-            "com.android.permissioncontroller", "permission_allow_foreground_only_button")), 5000)
-        grant?.click()
+        if (androidx.core.content.ContextCompat.checkSelfPermission(compose.activity, android.Manifest.permission.RECORD_AUDIO)
+            != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            // AOSP and Google system images use different permission-controller packages.
+            val grant = device.wait(androidx.test.uiautomator.Until.findObject(androidx.test.uiautomator.By.res(
+                java.util.regex.Pattern.compile("[^:]+:id/permission_allow_foreground_only_button"))), 5000)
+            assertNotNull("Microphone permission button missing; foreground=${device.currentPackageName}", grant)
+            requireNotNull(grant).click()
+        }
         compose.waitUntil(10000) { model.call.state.value.phase == "listening" && fakeCallRecording != null }
         assertEquals(android.content.pm.PackageManager.PERMISSION_GRANTED,
             androidx.core.content.ContextCompat.checkSelfPermission(compose.activity, android.Manifest.permission.RECORD_AUDIO))
