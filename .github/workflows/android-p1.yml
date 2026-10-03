@@ -31,8 +31,9 @@ jobs:
           ACCEPTANCE_KEYSTORE: ${{ secrets.ANDROID_ACCEPTANCE_KEYSTORE }}
         run: |
           if [ -n "$ACCEPTANCE_KEYSTORE" ]; then
-            mkdir -p "$HOME/.android"
-            printf '%s' "$ACCEPTANCE_KEYSTORE" | base64 --decode > "$HOME/.android/debug.keystore"
+            printf '%s' "$ACCEPTANCE_KEYSTORE" | base64 --decode > "$RUNNER_TEMP/acceptance-debug.keystore"
+            echo "ANDROID_ACCEPTANCE_KEYSTORE_PATH=$RUNNER_TEMP/acceptance-debug.keystore" >> "$GITHUB_ENV"
+            keytool -exportcert -alias androiddebugkey -storepass android -keystore "$RUNNER_TEMP/acceptance-debug.keystore" | sha256sum | grep -F '4b9f3735586a0d99b6af9a5ad7afaf792a6bced2095dc6430a392c21c212800a'
           elif [ "$GITHUB_REF" = "refs/heads/main" ]; then
             echo "Main delivery requires ANDROID_ACCEPTANCE_KEYSTORE" >&2
             exit 1
@@ -66,6 +67,12 @@ jobs:
         run: |
           mkdir -p artifacts/jvm-run-1
           cp -R app/build/test-results/testDebugUnitTest artifacts/jvm-run-1/
+      - name: Verify APK acceptance certificate
+        if: always() && env.ANDROID_ACCEPTANCE_KEYSTORE_PATH != ''
+        run: |
+          mkdir -p artifacts
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.apk > artifacts/apk-signature.txt
+          grep -F 'Signer #1 certificate SHA-256 digest: 4b9f3735586a0d99b6af9a5ad7afaf792a6bced2095dc6430a392c21c212800a' artifacts/apk-signature.txt
       - name: Summarize P1 JVM execution 1
         if: always()
         run: python3 scripts/summarize_evidence.py --mode jvm --output artifacts/jvm-run-1/p1-jvm-evidence.json
@@ -116,8 +123,9 @@ jobs:
           ACCEPTANCE_KEYSTORE: ${{ secrets.ANDROID_ACCEPTANCE_KEYSTORE }}
         run: |
           if [ -n "$ACCEPTANCE_KEYSTORE" ]; then
-            mkdir -p "$HOME/.android"
-            printf '%s' "$ACCEPTANCE_KEYSTORE" | base64 --decode > "$HOME/.android/debug.keystore"
+            printf '%s' "$ACCEPTANCE_KEYSTORE" | base64 --decode > "$RUNNER_TEMP/acceptance-debug.keystore"
+            echo "ANDROID_ACCEPTANCE_KEYSTORE_PATH=$RUNNER_TEMP/acceptance-debug.keystore" >> "$GITHUB_ENV"
+            keytool -exportcert -alias androiddebugkey -storepass android -keystore "$RUNNER_TEMP/acceptance-debug.keystore" | sha256sum | grep -F '4b9f3735586a0d99b6af9a5ad7afaf792a6bced2095dc6430a392c21c212800a'
           elif [ "$GITHUB_REF" = "refs/heads/main" ]; then
             echo "Main delivery requires ANDROID_ACCEPTANCE_KEYSTORE" >&2
             exit 1

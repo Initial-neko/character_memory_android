@@ -74,6 +74,16 @@ class PrototypeUiTest {
         compose.waitForIdle()
     }
 
+    private fun awaitCompactWindow() {
+        // wm size triggers Activity recreation. Semantics from the previous
+        // window must not receive taps before the compact window owns focus.
+        compose.waitUntil(10_000) {
+            val decor = compose.activity.window.decorView
+            decor.width == 720 && decor.hasWindowFocus() &&
+                compose.onAllNodes(hasTestTag("character-rin")).fetchSemanticsNodes().size == 1
+        }
+    }
+
     private fun screenshot(name: String, expectedTag: String) {
         // Asserting the Compose semantics tree is not sufficient to synchronize
         // Android SurfaceFlinger frame presentation. Verify the intended route,
@@ -184,6 +194,7 @@ class PrototypeUiTest {
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         try {
             device.executeShellCommand("wm size 720x1280")
+            awaitCompactWindow()
             compose.onNodeWithTag("character-rin").performClick()
             compose.onNodeWithTag("chat-open-call").performClick()
             // Regression: the local camera overlay must not cover the
@@ -228,6 +239,7 @@ class PrototypeUiTest {
             // was shown; force it and assert Android's actual IME inset.
             device.executeShellCommand("settings put secure show_ime_with_hard_keyboard 1")
             device.executeShellCommand("wm size 720x1280")
+            awaitCompactWindow()
             compose.onNodeWithTag("character-rin").performClick()
             compose.onNodeWithTag("chat-input").performClick()
             compose.onNodeWithTag("chat-input").performTextInput("输入法展开时聊天输入框仍应可用")

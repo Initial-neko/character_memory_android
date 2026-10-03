@@ -13,3 +13,5 @@ CI 版本门槛：`python3 scripts/verify_delivery_version.py --base-ref <本次
 目标设备门槛：`python3 scripts/verify_delivery_version.py --installed-code <手机实际versionCode> --output <工作区外证据JSON>`。本地结果 `source_ref=LOCAL_UNVERIFIED`，不可冒充 main CI 来源。
 
 0.2.3-p2 的本轮候选集成 #11/#16：聊天气泡和原型安全区、角色列表/Space 视觉、确认评论后的前台有界刷新；修正输入法/异步预览测试、生成图片 fixture 校验和、图片预览失败时禁止发送。语音 #13/#14、视觉 #12 与新增 P2.5 功能不包含在这一轮。是否最终通过以对应 CI 与手机证据为准，真实 Core E2E 未跑则记 NOT_RUN。
+
+验收固定签名：CI 将 Secret 解码到 runner 临时目录，通过 ANDROID_ACCEPTANCE_KEYSTORE_PATH 显式指定 debug signingConfig；导出证书和实际 APK 均须匹配 SHA-256 4b9f3735586a0d99b6af9a5ad7afaf792a6bced2095dc6430a392c21c212800a。只存公开指纹与 APK 校验报告，不提交密钥。首次换签名需用户明确授权卸载；随后使用同一密钥覆盖安装。

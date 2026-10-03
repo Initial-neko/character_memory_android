@@ -126,6 +126,9 @@ class LiveApiUiTest {
     }
     private fun tap(tag: String, scroll: Boolean = false) {
         waitTag(tag)
+        // Compose can expose nodes while Android is still transferring window
+        // focus from the launcher/dialog. IME show requests fail in that state.
+        compose.waitUntil(10_000) { compose.activity.window.decorView.hasWindowFocus() }
         val node = compose.onNodeWithTag(tag)
         if (scroll) node.performScrollTo()
         node.performClick()
@@ -234,8 +237,9 @@ class LiveApiUiTest {
         screenshot("09-group-chat", "live-chat")
         tap("live-chat-input")
         compose.onNodeWithTag("live-chat-input").performTextInput("fixture send")
-        compose.waitUntil(10_000) { imeBottom > 0 && model.state.value.composeText == "fixture send" }
-        closeActualIme()
+        compose.waitUntil(10_000) { model.state.value.composeText == "fixture send" }
+        dismissIme()
+        compose.waitUntil(10_000) { imeBottom == 0 }
         compose.onNodeWithTag("live-chat-send").assertIsEnabled()
         tap("live-chat-send")
         compose.waitUntil(10_000) { dispatcher.writes.any { it.first == "/v1/groups/g1/messages" } }

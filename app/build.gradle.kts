@@ -23,6 +23,16 @@ android {
         }
     }
 
+    // CI provides an explicit path: never depend on a runner's default debug key.
+    System.getenv("ANDROID_ACCEPTANCE_KEYSTORE_PATH")?.let { path ->
+        signingConfigs.getByName("debug") {
+            storeFile = file(path)
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
