@@ -59,6 +59,11 @@ class VoiceCallCoordinator(
     }
     fun end(error: String? = null) {
         val endedGeneration = ++generation
+        if (!mutable.value.active && recorder == null && session == null && cleanup?.isActive != true) {
+            turns.end(); timeout?.cancel(); timeout = null; speaking = false
+            mutable.value = mutable.value.copy(active = false, phase = "idle", pendingCount = 0, speaker = null, error = error)
+            return
+        }
         turns.end(); speaking = false; timeout = null
         port?.stopPlayback()
         val oldRecorder = recorder; recorder = null

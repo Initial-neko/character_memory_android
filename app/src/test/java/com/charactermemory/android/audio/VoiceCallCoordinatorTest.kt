@@ -5,6 +5,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class VoiceCallCoordinatorTest {
+    @Test fun endingAnIdleCallDoesNotTransientlyDisableDictationOrPlayback() = runBlocking {
+        val context = VoiceContextSnapshot(1, VoiceTargetScope.DIRECT, "a", "c", true, true)
+        val call = VoiceCallCoordinator(this, { context }, { FakePort() })
+        call.end()
+        assertEquals("idle", call.state.value.phase)
+        call.end()
+        assertEquals("idle", call.state.value.phase)
+    }
     @Test fun matchedReactionCompletionStopsTimeoutWhileLongAudioIsStillPlaying() = runBlocking {
         val port = FakePort().apply { playbackGate = CompletableDeferred() }
         val context = VoiceContextSnapshot(1, VoiceTargetScope.GROUP, "g", "c", true, true)
