@@ -3,6 +3,7 @@
     <!-- P2 accesses private Core HTTPS. P1 remains an explicit offline demo;
          native microphone/camera/screen capture belong to later phases. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <application
         android:allowBackup="false"
         android:label="@string/app_name"

@@ -1,0 +1,135 @@
+package com.charactermemory.android.live
+
+import android.media.MediaPlayer
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
+import android.content.Context
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+
+/** One app-wide MediaPlayer owner shared by chat voice messages and Space attachments. */
+@Composable
+internal fun LiveAudioPlayerButton(url: String, label: String, tag: String, playbackOwner: String) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    androidx.compose.runtime.LaunchedEffect(context) { LiveAudioPlayback.initialize(context) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val status = LiveAudioPlayback.status(playbackOwner)
+    androidx.compose.runtime.DisposableEffect(playbackOwner, url, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) LiveAudioPlayback.stop(playbackOwner)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            LiveAudioPlayback.release(playbackOwner)
+        }
+    }
+    TextButton(onClick = { LiveAudioPlayback.toggle(playbackOwner, url) },
+        enabled = url.isNotBlank() && !LiveAudioPlayback.blocked, modifier = Modifier.testTag(tag)) {
+        Text("$label · $status")
+    }
+}
+
+internal object LiveAudioPlayback {
+    var blocked by mutableStateOf(false)
+    private var audioManager: AudioManager? = null
+    private var focus: AudioFocusRequest? = null
+    fun initialize(context: Context) { audioManager = context.applicationContext.getSystemService(AudioManager::class.java) }
+    fun stopAll() { releasePlayer(); state.value = UiState(null, "播放") }
+    private data class UiState(val owner: String?, val status: String)
+    private val state = mutableStateOf(UiState(null, "播放"))
+    private var activeOwner: String? = null
+    private var activePlayer: MediaPlayer? = null
+    private var generation: Long = 0L
+
+    fun status(owner: String): String {
+        val current = state.value
+        return if (current.owner == owner) current.status else "播放"
+    }
+
+    fun toggle(owner: String, url: String) {
+        if (blocked) return
+        if (activeOwner == owner && activePlayer != null) {
+            stop(owner)
+            return
+        }
+        releasePlayer()
+        val attributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()
+        lateinit var request: AudioFocusRequest
+        request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+            .setAudioAttributes(attributes).setOnAudioFocusChangeListener { change ->
+                if (focus === request && change <= AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) stopAll()
+            }.build()
+        if (audioManager?.requestAudioFocus(request) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+            state.value = UiState(owner, "音频被占用，点击重试")
+            return
+        }
+        focus = request
+        val ticket = ++generation
+        val created = MediaPlayer()
+        created.setAudioAttributes(attributes)
+        activeOwner = owner
+        activePlayer = created
+        state.value = UiState(owner, "加载中…")
+        created.setOnPreparedListener { prepared ->
+            if (isCurrent(owner, prepared, ticket)) {
+                runCatching { prepared.start() }.onFailure { finish(owner, prepared, ticket, "播放失败，点击重试") }
+                if (isCurrent(owner, prepared, ticket)) state.value = UiState(owner, "停止")
+            }
+        }
+        created.setOnCompletionListener { completed -> finish(owner, completed, ticket, "播放") }
+        created.setOnErrorListener { failed, _, _ ->
+            finish(owner, failed, ticket, "播放失败，点击重试")
+            true
+        }
+        runCatching { created.setDataSource(url); created.prepareAsync() }.onFailure {
+            finish(owner, created, ticket, "播放失败，点击重试")
+        }
+    }
+
+    fun stop(owner: String) {
+        if (activeOwner == owner && activePlayer != null) {
+            releasePlayer()
+            state.value = UiState(owner, "播放")
+        }
+    }
+
+    fun release(owner: String) {
+        stop(owner)
+        if (state.value.owner == owner && activeOwner != owner) state.value = UiState(null, "播放")
+    }
+
+    private fun isCurrent(owner: String, player: MediaPlayer, ticket: Long): Boolean =
+        activeOwner == owner && activePlayer === player && generation == ticket
+
+    private fun finish(owner: String, player: MediaPlayer, ticket: Long, status: String) {
+        if (!isCurrent(owner, player, ticket)) return
+        activePlayer = null
+        activeOwner = null
+        generation++
+        runCatching { player.release() }
+        abandonFocus()
+        state.value = UiState(owner, status)
+    }
+
+    private fun releasePlayer() {
+        val oldPlayer = activePlayer
+        activePlayer = null
+        activeOwner = null
+        generation++
+        if (oldPlayer != null) runCatching { oldPlayer.release() }
+        abandonFocus()
+    }
+    private fun abandonFocus() { focus?.let { audioManager?.abandonAudioFocusRequest(it) }; focus = null }
+}

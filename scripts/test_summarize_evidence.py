@@ -146,7 +146,7 @@ class EvidenceTest(unittest.TestCase):
         self.assertEqual("PASS", summarize(self.root, "emulator")["status"])
         result = summarize(self.root, "emulator", profile="p2")
         self.assertEqual(5, result["tests"])
-        self.assertEqual(9, len(result["missing_screenshots"]))
+        self.assertEqual(16, len(result["missing_screenshots"]))
 
     def test_attribute_only_skip_prevents_pass(self):
         path = self.report()

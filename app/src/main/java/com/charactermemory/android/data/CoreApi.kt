@@ -18,6 +18,7 @@ import okio.BufferedSink
 import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
+import java.io.ByteArrayOutputStream
 import java.io.Closeable
 import java.io.EOFException
 import java.io.IOException
@@ -25,6 +26,8 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+
+data class SynthesizedAudio(val bytes: ByteArray, val mimeType: String)
 
 class ApiFailure(val status: Int, val detail: JsonElement?, message: String) : IOException(message)
 
@@ -46,6 +49,57 @@ class CoreApi(val config: ServerConfig, client: OkHttpClient = OkHttpClient()) {
 
     suspend fun post(path: String, body: JsonObject): JsonObject = write("POST", path, body)
     suspend fun patch(path: String, body: JsonObject): JsonObject = write("PATCH", path, body)
+
+    /** Binary TTS is always served by Media, not Core; a failed generation is never replayed. */
+    suspend fun synthesizeSpeech(text: String, voice: String? = null): SynthesizedAudio {
+        val content = text.trim()
+        require(content.isNotEmpty() && content.length <= 4_000) { "朗读文本长度无效" }
+        val json = jsonObject("text" to content, "voice" to voice).toString()
+            .toRequestBody("application/json; charset=utf-8".toMediaType())
+        val once = object : RequestBody() {
+            override fun contentType() = json.contentType()
+            override fun contentLength() = json.contentLength()
+            override fun writeTo(sink: BufferedSink) = json.writeTo(sink)
+            override fun isOneShot() = true
+        }
+        val request = Request.Builder().url(url("/v1/tts", media = true)).post(once).build()
+        return suspendCancellableCoroutine { continuation ->
+            val call = http.newCall(request)
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, error: IOException) {
+                    if (continuation.isActive) continuation.resumeWithException(error)
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    response.use {
+                        try {
+                            if (!it.isSuccessful) readObject(it) // throws ApiFailure with safe detail
+                            val mime = it.header("Content-Type").orEmpty().substringBefore(';').trim().lowercase()
+                            if (mime !in setOf("audio/wav", "audio/x-wav", "audio/mpeg", "audio/mp3"))
+                                throw IOException("Media TTS 返回了不支持的音频格式")
+                            val stream = it.body?.byteStream() ?: throw IOException("Media TTS 音频为空")
+                            val result = ByteArrayOutputStream()
+                            stream.use { input ->
+                                val chunk = ByteArray(8192)
+                                while (true) {
+                                    val read = input.read(chunk)
+                                    if (read < 0) break
+                                    if (result.size() + read > 16 * 1024 * 1024)
+                                        throw IOException("合成音频超出 16 MiB 上限")
+                                    result.write(chunk, 0, read)
+                                }
+                            }
+                            if (result.size() == 0) throw IOException("Media TTS 音频为空")
+                            if (continuation.isActive) continuation.resume(SynthesizedAudio(result.toByteArray(), mime))
+                        } catch (error: Exception) {
+                            if (continuation.isActive) continuation.resumeWithException(error)
+                        }
+                    }
+                }
+            })
+        }
+    }
 
     private suspend fun write(method: String, path: String, body: JsonObject): JsonObject {
         val jsonBody = body.toString().toRequestBody("application/json; charset=utf-8".toMediaType())

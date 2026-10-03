@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.charactermemory.android.data.*
+import com.charactermemory.android.audio.*
 import com.google.gson.JsonObject
 import java.io.Closeable
 import java.net.URLEncoder
@@ -19,7 +20,9 @@ class LiveViewModel(
     context: Context,
     private val apiFactory: (ServerConfig) -> CoreApi = { CoreApi(it) },
     initialConfig: ServerConfig? = null,
-    preferencesName: String = "live-core-v1"
+    preferencesName: String = "live-core-v1",
+    private val mediaApiFactory: (ServerConfig) -> MediaApi = { MediaApi(it) },
+    recorderFactory: () -> VoiceRecorderPort = { AndroidVoiceRecorder() }
 ) : ViewModel() {
     private val preferences = context.applicationContext.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
     private val savedConfig = runCatching {
@@ -35,18 +38,46 @@ class LiveViewModel(
     private var session = SupervisorJob(viewModelScope.coroutineContext[Job])
     private var stream: Closeable? = null
     private var reconnect: Job? = null
+    private var spaceNotificationPoll: Job? = null
     private var lastEventId: String? = null
     private var reconnectAttempt = 0
     private var streamOpenedAt = 0L
     private var active = true
+    val voice = VoiceCoordinator(
+        scope = viewModelScope, dispatcher = Dispatchers.IO, mainDispatcher = Dispatchers.Main.immediate,
+        contextProvider = { voiceContext() },
+        recorderFactory = recorderFactory,
+        transcribePcm = { pcm -> mediaApiFactory(state.value.config).transcribe(Pcm16Wav.encode(pcm)).text("text") },
+        stopPlayback = { LiveAudioPlayback.stopAll() }
+    )
+    private fun voiceContext(): VoiceContextSnapshot {
+        val current = state.value
+        val target = current.target
+        return VoiceContextSnapshot(fence.current, if (target?.group == true) VoiceTargetScope.GROUP else VoiceTargetScope.DIRECT,
+            target?.id.orEmpty(), target?.conversationId.orEmpty(), current.page == LivePage.CHAT, active)
+    }
+    fun useVoiceDraft(ticket: VoiceTaskTicket) {
+        when (val result = voice.useDraft(ticket, state.value.composeText)) {
+            is DraftAppendResult.Appended -> editText(result.text)
+            is DraftAppendResult.TooLong -> update { it.copy(error = "加入后超过消息长度上限；请先缩短文字。转写草稿已保留。") }
+            DraftAppendResult.Unavailable -> Unit
+        }
+    }
     private var activeWrites = 0
     private var historyLoading = false
     private var historyPaged = false
+    private var usageReturnPage = LivePage.SETTINGS
     private var pendingMemberProgress: List<JsonObject> = emptyList()
 
     init {
+        LiveAudioPlayback.initialize(context)
+        viewModelScope.launch {
+            voice.state.collect { value ->
+                LiveAudioPlayback.blocked = value.phase !in setOf(VoiceCoordinatorPhase.IDLE, VoiceCoordinatorPhase.ERROR, VoiceCoordinatorPhase.DRAFT)
+            }
+        }
         if (initialConfig != null) preferences.edit().putString("core", initialConfig.coreUrl).putString("media", initialConfig.mediaUrl).apply()
-        refresh(); checkHealth()
+        refresh(); checkHealth(); loadSpaceNotifications(); startSpaceNotificationPolling()
     }
 
     internal fun update(transform: (LiveState) -> LiveState) = mutable.update(transform)
@@ -61,6 +92,8 @@ class LiveViewModel(
     }
 
     private fun cancelSession(reason: String? = null) {
+        voice.invalidate()
+        LiveAudioPlayback.stopAll()
         fence.advance()
         stream?.close(); stream = null
         reconnect?.cancel(); reconnect = null
@@ -121,9 +154,10 @@ class LiveViewModel(
         api = apiFactory(config)
         lastEventId = null
         update { LiveState(config, page = LivePage.SETTINGS, notice = "配置已保存在此手机。") }
-        refresh(); checkHealth()
+        refresh(); checkHealth(); loadSpaceNotifications(); startSpaceNotificationPolling()
     }
     fun resetConfig() {
+        spaceNotificationPoll?.cancel(); spaceNotificationPoll = null
         cancelSession(); preferences.edit().remove("core").remove("media").apply()
         val config = ServerConfig("", "")
         api = apiFactory(config); lastEventId = null
@@ -204,6 +238,9 @@ class LiveViewModel(
     fun show(page: LivePage) {
         val old = mutable.value.page
         if (old == page) return
+        voice.invalidate()
+        LiveAudioPlayback.stopAll()
+        if (page == LivePage.USAGE) usageReturnPage = old
         val chatPages = setOf(LivePage.CHAT, LivePage.IMAGE, LivePage.DETAILS)
         if (old in chatPages && page !in chatPages) cancelSession()
         // Prevent late draft writes from repopulating a feature after navigation.
@@ -211,14 +248,25 @@ class LiveViewModel(
         update { it.copy(page = page, error = null, capacityConfirmation = null) }
         when (page) {
             LivePage.HOME -> refresh()
-            LivePage.SPACE -> loadSpace()
+            LivePage.SPACE -> { loadSpace(); loadSpaceNotifications(); loadSpaceMentionCharacters() }
             LivePage.ENSEMBLE -> resumeEnsemble()
             LivePage.IMAGE -> loadStickers()
+            LivePage.USAGE -> loadLlmUsage()
             LivePage.CHAT -> { loadHistory(); connectStream() }
             else -> Unit
         }
     }
-    fun back() = show(if (mutable.value.page in setOf(LivePage.IMAGE, LivePage.DETAILS)) LivePage.CHAT else LivePage.HOME)
+    fun back() = show(when (mutable.value.page) {
+        LivePage.IMAGE, LivePage.DETAILS -> LivePage.CHAT
+        LivePage.USAGE -> usageReturnPage
+        else -> LivePage.HOME
+    })
+
+    fun loadLlmUsage() = operation("llm-usage") { client ->
+        val usage = LlmUsageRepository(client).load()
+        currentCoroutineContext().ensureActive()
+        update { it.copy(llmUsage = usage) }
+    }
 
     fun loadHistory(older: Boolean = false) {
         if (historyLoading || !active) return
@@ -337,12 +385,26 @@ class LiveViewModel(
         if (active) return
         active = true
         refresh(); checkHealth()
+        loadSpaceNotifications(); startSpaceNotificationPolling()
         if (mutable.value.page in setOf(LivePage.CHAT, LivePage.IMAGE, LivePage.DETAILS)) { loadHistory(); connectStream() }
-        if (mutable.value.page == LivePage.SPACE) loadSpace()
+        if (mutable.value.page == LivePage.SPACE) { loadSpace(); loadSpaceMentionCharacters() }
         if (mutable.value.page == LivePage.ENSEMBLE) resumeEnsemble()
     }
-    fun deactivate() { if (active) { active = false; cancelSession() } }
-    override fun onCleared() { active = false; cancelSession(); session.cancel(); super.onCleared() }
+    fun deactivate() { if (active) { active = false; spaceNotificationPoll?.cancel(); spaceNotificationPoll = null; cancelSession() } }
+    private fun startSpaceNotificationPolling() {
+        if (!active || mutable.value.config.coreUrl.isBlank() || spaceNotificationPoll?.isActive == true) return
+        spaceNotificationPoll = viewModelScope.launch {
+            while (isActive) {
+                delay(60_000L)
+                if (!active || mutable.value.config.coreUrl.isBlank()) break
+                loadSpaceNotifications()
+            }
+        }
+    }
+    override fun onCleared() {
+        active = false; spaceNotificationPoll?.cancel(); spaceNotificationPoll = null
+        cancelSession(); session.cancel(); super.onCleared()
+    }
 
     companion object {
         fun factory(context: Context, initialConfig: ServerConfig? = null): ViewModelProvider.Factory = object : ViewModelProvider.Factory {

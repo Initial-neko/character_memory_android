@@ -44,6 +44,11 @@ class LiveRulesTest {
         assertFalse(LiveRules.shouldClearCommentDraft("draft A", 8L, receipt))
         assertFalse(LiveRules.shouldClearCommentDraft("draft A", null, receipt))
     }
+    @Test fun acceptedMentionCommentOnlyClearsTheSameMentionSelection() {
+        val receipt = CommentReceipt("c2", "draft A", 7L, listOf("rin", "mei"))
+        assertTrue(LiveRules.shouldClearCommentDraft("draft A", 7L, listOf("rin", "mei"), receipt))
+        assertFalse(LiveRules.shouldClearCommentDraft("draft A", 7L, listOf("rin"), receipt))
+    }
     @Test fun stalePostReadCannotEraseConfirmedCommentAndFreshReadEnrichesIt() {
         val confirmed = jsonObject("id" to 9, "content" to "confirmed")
         val stale = jsonObject("id" to 1, "content" to "post", "comments" to emptyList<Any>())
@@ -71,5 +76,88 @@ class LiveRulesTest {
         val rows = LiveRules.preserveConfirmedComments(fresh, listOf(confirmed)).items("comments")
         assertEquals(listOf("12", "9", "10"), rows.map { it.text("id") })
         assertEquals("enriched", rows[1].text("content"))
+    }
+    @Test fun spaceMentionsRequireAtMostFourUniqueNonArchivedRoleIdsIncludingDeferred() {
+        val spaceEligibleRoleIds = setOf("rin", "mei", "lex", "yuki", "nova")
+        assertTrue(LiveRules.validSpaceMentions(emptyList(), spaceEligibleRoleIds))
+        assertTrue(LiveRules.validSpaceMentions(listOf("rin", "mei", "lex", "yuki"), spaceEligibleRoleIds))
+        assertTrue(LiveRules.validSpaceMentions(listOf("nova"), spaceEligibleRoleIds))
+        assertFalse(LiveRules.validSpaceMentions(listOf("rin", "rin"), spaceEligibleRoleIds))
+        assertFalse(LiveRules.validSpaceMentions(listOf("rin", "mei", "lex", "yuki", "nova"), spaceEligibleRoleIds))
+        assertFalse(LiveRules.validSpaceMentions(listOf("rin", "archived"), spaceEligibleRoleIds))
+        assertFalse(LiveRules.validSpaceMentions(listOf("rin", "missing"), spaceEligibleRoleIds))
+    }
+    @Test fun spaceCommentRetryReusesIdempotencyKeyOnlyForIdenticalPayload() {
+        val pending = PendingCommentRequest("一起去吗？", 17L, null, listOf("rin", "mei"), "request-1")
+        assertEquals("request-1", LiveRules.commentRequestId(pending, "一起去吗？", 17L, null, listOf("rin", "mei"), "request-2"))
+        assertEquals("request-2", LiveRules.commentRequestId(pending, "一起去吗", 17L, null, listOf("rin", "mei"), "request-2"))
+        assertEquals("request-2", LiveRules.commentRequestId(pending, "一起去吗？", 17L, null, listOf("mei", "rin"), "request-2"))
+    }
+    @Test fun notificationCommentMergesOnceIntoFullPostAndPreservesOtherFields() {
+        val post = jsonObject("id" to 42, "content" to "今天去看海。", "media_items" to listOf(
+            jsonObject("media_id" to "media-42", "url" to "/media/42.png", "available" to true)),
+            "like_count" to 2, "likes" to listOf(jsonObject("character_id" to "rin"), jsonObject("character_id" to "mei")),
+            "comments" to listOf(jsonObject("id" to 51, "content" to "旧评论"),
+                jsonObject("id" to 52, "content" to "另一条已有评论"),
+                jsonObject("id" to 59, "content" to "stale notification comment")))
+        val sourceComment = jsonObject("id" to 59, "post_id" to 42, "content" to "我看到你喊我啦。", "mentions_user" to true)
+        val attached = LiveRules.attachSpaceComment(post, sourceComment, "42")
+        val comments = attached.items("comments")
+        assertEquals("42", attached.text("id"))
+        assertEquals(listOf("51", "52", "59"), comments.map { it.text("id") })
+        assertEquals("我看到你喊我啦。", comments.last().text("content"))
+        assertEquals(post.get("media_items"), attached.get("media_items"))
+        assertEquals(post.get("like_count"), attached.get("like_count"))
+        assertEquals(post.get("likes"), attached.get("likes"))
+        assertEquals(1, LiveRules.attachSpaceComment(attached, sourceComment, "42").items("comments").count { it.text("id") == "59" })
+        assertTrue(comments.last().get("mentions_user").asBoolean)
+    }
+    @Test fun lateSpaceRefreshKeepsConfirmedNotificationCommentAndAcceptsFreshPostFields() {
+        val notificationComment = jsonObject("id" to 59, "post_id" to 42, "actor_type" to "CHARACTER",
+            "content" to "持久化的通知评论", "mentions_user" to true)
+        val refreshedPost = jsonObject("id" to 42, "content" to "服务端更新后的动态", "created_at" to "2026-10-03T10:00:00+08:00",
+            "media_items" to listOf(jsonObject("media_id" to "media-42-new", "url" to "/media/42-new.png", "available" to true)),
+            "like_count" to 3, "likes" to listOf(jsonObject("character_id" to "rin"), jsonObject("character_id" to "mei"),
+                jsonObject("character_id" to "lex")),
+            "comments" to listOf(jsonObject("id" to 51, "content" to "保留评论一"),
+                jsonObject("id" to 52, "content" to "保留评论二")))
+
+        val merged = LiveRules.preserveConfirmedComments(refreshedPost, listOf(notificationComment))
+
+        assertEquals("服务端更新后的动态", merged.text("content"))
+        assertEquals("media-42-new", merged.items("media_items").single().text("media_id"))
+        assertEquals(3, merged.get("like_count").asInt)
+        assertEquals(3, merged.items("likes").size)
+        assertEquals(listOf("51", "52", "59"), merged.items("comments").map { it.text("id") })
+        assertEquals("持久化的通知评论", merged.items("comments").single { it.text("id") == "59" }.text("content"))
+        assertEquals(1, LiveRules.preserveConfirmedComments(merged, listOf(notificationComment)).items("comments")
+            .count { it.text("id") == "59" })
+    }
+    @Test fun spaceRoleMentionsAndRepliesToUserHaveDistinctAttentionMarkers() {
+        val userComment = jsonObject("id" to 10, "actor_type" to "USER")
+        val characterComment = jsonObject("id" to 11, "actor_type" to "CHARACTER")
+        val comments = listOf(userComment, characterComment)
+        val mention = jsonObject("id" to 12, "actor_type" to "CHARACTER", "mentions_user" to true)
+        val replyToUser = jsonObject("id" to 13, "actor_type" to "CHARACTER", "reply_to_comment_id" to 10)
+        val replyToCharacter = jsonObject("id" to 14, "actor_type" to "CHARACTER", "reply_to_comment_id" to 11)
+        val userAuthored = jsonObject("id" to 15, "actor_type" to "USER", "mentions_user" to true)
+
+        assertEquals("角色 @ 了你", LiveRules.spaceRoleAttentionMarker(mention, comments))
+        assertEquals("角色回复了你", LiveRules.spaceRoleAttentionMarker(replyToUser, comments))
+        assertNull(LiveRules.spaceRoleAttentionMarker(replyToCharacter, comments))
+        assertNull(LiveRules.spaceRoleAttentionMarker(userAuthored, comments))
+    }
+
+    @Test fun stickerPacksPreservePackNamesAndStickerOrderFromCoreCatalog() {
+        val packs = LiveRules.stickerPacks(listOf(
+            jsonObject("id" to "wave", "label" to "挥手", "pack_id" to "default", "pack_name" to "内置"),
+            jsonObject("id" to "happy", "label" to "开心", "pack_id" to "default", "pack_name" to "内置"),
+            jsonObject("id" to "sparkle", "label" to "星光", "pack_id" to "custom", "pack_name" to "自定义")
+        ))
+
+        assertEquals(listOf("default", "custom"), packs.map { it.id })
+        assertEquals(listOf("内置", "自定义"), packs.map { it.name })
+        assertEquals(listOf("wave", "happy"), packs.first().stickers.map { it.text("id") })
+        assertEquals(listOf("sparkle"), packs.last().stickers.map { it.text("id") })
     }
 }

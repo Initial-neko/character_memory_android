@@ -2,6 +2,8 @@ package com.charactermemory.android.live
 
 import com.charactermemory.android.data.*
 import com.google.gson.JsonObject
+import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
@@ -125,11 +127,85 @@ fun LiveViewModel.refreshPost(id: String) = operation("space-post-$id") { client
     }
 }
 
-fun LiveViewModel.comment(postId: String, content: String, replyTo: Long? = null, stickerId: String? = null) {
+fun LiveViewModel.loadSpaceNotifications() {
+    if (state.value.config.coreUrl.isBlank()) return
+    operation("space-notifications") { client ->
+        val response = try {
+            client.get("/v1/space/notifications", mapOf("unread_only" to "true", "limit" to "50"))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            currentCoroutineContext().ensureActive()
+            update { it.copy(spaceNotificationError = error.message ?: "提醒暂不可用") }
+            return@operation
+        }
+        currentCoroutineContext().ensureActive()
+        update { it.copy(spaceNotifications = response.items("notifications"),
+            spaceUnreadCount = response.number("unread_count").coerceAtLeast(0L).toInt(), spaceNotificationError = null) }
+    }
+}
+
+fun LiveViewModel.loadSpaceMentionCharacters() {
+    if (state.value.config.coreUrl.isBlank()) return
+    operation("space-mention-characters") { client ->
+        val characters = client.get("/v1/characters", mapOf("archived" to "false", "include_deferred" to "true"))
+            .items("characters")
+        currentCoroutineContext().ensureActive()
+        update { it.copy(spaceMentionCharacters = characters) }
+    }
+}
+
+fun LiveViewModel.openSpaceNotification(notificationId: String) {
+    val snapshot = state.value
+    val notification = snapshot.spaceNotifications.firstOrNull { it.text("id") == notificationId } ?: return
+    val postId = notification.text("post_id").takeIf { it.isNotBlank() } ?: return
+    val commentId = notification.text("comment_id").takeIf { it.isNotBlank() } ?: return
+    val comment = notification.objOrNull("comment") ?: return
+    operation("space-notification-$notificationId", write = true) { client ->
+        val fullPost = snapshot.posts.firstOrNull { it.text("id") == postId }
+            ?: client.get("/v1/space/posts/${pathId(postId)}").objOrNull("post")
+            ?: error("动态不存在")
+        val response = client.post("/v1/space/notifications/${pathId(notificationId)}/read", jsonObject())
+        currentCoroutineContext().ensureActive()
+        val nextCount = if (response.has("unread_count")) response.number("unread_count").coerceAtLeast(0L).toInt()
+            else (state.value.spaceUnreadCount - 1).coerceAtLeast(0)
+        update { current ->
+            val latestPost = current.posts.firstOrNull { it.text("id") == postId } ?: fullPost
+            val confirmedComments = LiveRules.mergeRecords(current.confirmedComments[postId].orEmpty(), listOf(comment))
+            val focusedPost = LiveRules.preserveConfirmedComments(
+                LiveRules.attachSpaceComment(latestPost, comment, postId),
+                confirmedComments
+            )
+            current.copy(page = LivePage.SPACE,
+                posts = LiveRules.mergeRecords(current.posts, listOf(focusedPost)),
+                confirmedComments = current.confirmedComments + (postId to confirmedComments),
+                spaceNotifications = current.spaceNotifications.filterNot { it.text("id") == notificationId },
+                spaceUnreadCount = nextCount, spaceNotificationError = null,
+                focusedSpacePostId = postId, focusedSpaceCommentId = commentId,
+                error = null)
+        }
+    }
+}
+
+fun LiveViewModel.comment(
+    postId: String, content: String, replyTo: Long? = null, stickerId: String? = null, mentions: List<String> = emptyList()
+) {
     if (content.trim().isBlank() && stickerId == null) return
+    val snapshot = state.value
+    val mentionCharacters = snapshot.spaceMentionCharacters.ifEmpty { snapshot.characters }
+    val activeCharacterIds = mentionCharacters.map { it.text("id") }.filter { it.isNotBlank() }.toSet()
+    if (!LiveRules.validSpaceMentions(mentions, activeCharacterIds)) {
+        update { it.copy(error = "最多提及 4 位当前人物；请移除重复或不可用人物。") }; return
+    }
+    if ("comment-$postId" in snapshot.busy) return
+    val payloadContent = content.trim().take(1000)
+    val requestId = LiveRules.commentRequestId(snapshot.pendingCommentRequests[postId], payloadContent, replyTo, stickerId,
+        mentions, UUID.randomUUID().toString())
+    val pending = PendingCommentRequest(payloadContent, replyTo, stickerId, mentions.toList(), requestId)
+    update { it.copy(pendingCommentRequests = it.pendingCommentRequests + (postId to pending)) }
     operation("comment-$postId", write = true) { client ->
-        val response = client.post("/v1/space/posts/${pathId(postId)}/comments", jsonObject("content" to content.trim().take(1000),
-            "reply_to_comment_id" to replyTo, "sticker_id" to stickerId))
+        val response = client.post("/v1/space/posts/${pathId(postId)}/comments", jsonObject("content" to payloadContent,
+            "reply_to_comment_id" to replyTo, "sticker_id" to stickerId, "mentions" to mentions, "client_request_id" to requestId))
         val comment = response.objOrNull("comment") ?: error("服务器没有返回评论凭据，请刷新动态确认")
         val receiptId = comment.text("id").takeIf { it.isNotBlank() } ?: error("服务器未返回评论 ID，请刷新确认")
         currentCoroutineContext().ensureActive()
@@ -138,26 +214,28 @@ fun LiveViewModel.comment(postId: String, content: String, replyTo: Long? = null
                 val comments = LiveRules.mergeRecords(post.items("comments"), listOf(comment))
                 add("comments", com.google.gson.JsonArray().apply { comments.forEach { add(it) } })
             }
-        }, commentReceipts = current.commentReceipts + (postId to CommentReceipt(receiptId, content, replyTo, SpaceReplyWindow(android.os.SystemClock.elapsedRealtime()))),
+        }, commentReceipts = current.commentReceipts + (postId to CommentReceipt(receiptId, content, replyTo, SpaceReplyWindow(android.os.SystemClock.elapsedRealtime()), mentions.toList())),
             confirmedComments = current.confirmedComments + (postId to LiveRules.mergeRecords(current.confirmedComments[postId].orEmpty(), listOf(comment))),
-            notice = "评论已保存；人物回复请刷新查看。") }
+            pendingCommentRequests = if (current.pendingCommentRequests[postId]?.clientRequestId == requestId)
+                current.pendingCommentRequests - postId else current.pendingCommentRequests,
+            notice = "评论已保存；被提及的人物会正常决定是否回复，也可能保持沉默。") }
     }
 }
 
-fun LiveViewModel.rewriteImage(generate: Boolean = false) {
+fun LiveViewModel.generateImageDraft() {
     val snapshot = state.value
     if (snapshot.target == null || snapshot.imageCharacterId.isBlank()) { update { it.copy(error = "请选择参考人物") }; return }
     if (snapshot.imageInstruction.trim().isBlank()) { update { it.copy(error = "请填写图片描述") }; return }
     operation("image-generate", write = true) { client ->
-        val response = client.post("/v1/characters/${pathId(snapshot.imageCharacterId)}/images/${if (generate) "generate" else "rewrite"}",
+        val response = client.post("/v1/characters/${pathId(snapshot.imageCharacterId)}/images/generate",
             jsonObject("instruction" to snapshot.imageInstruction.trim(), "purpose" to snapshot.imagePurpose,
                 "use_avatar_reference" to snapshot.imageUseAvatar, "persist_result" to false))
         currentCoroutineContext().ensureActive()
-        val image = if (generate) response.objOrNull("image")?.takeIf { it.text("data_url").startsWith("data:image/") }
-            ?: error("生成接口未返回可发送图片草稿") else null
-        update { it.copy(imagePrompt = response.text("prompt"), imageDraft = image ?: it.imageDraft,
-            notice = if (generate) "图片草稿已生成；确认发送后才进入聊天历史。" else "提示词已润色。") }
-    }
+        val image = response.objOrNull("image")?.takeIf { it.text("data_url").startsWith("data:image/") }
+            ?: error("生成接口未返回可发送图片草稿")
+        update { it.copy(imagePrompt = response.text("prompt"), imageDraft = image,
+            notice = "Core 已润色提示词并生成图片草稿；确认发送后才进入聊天历史。") }
+}
 }
 
 fun LiveViewModel.discardImage() = update { it.copy(imageDraft = null) }

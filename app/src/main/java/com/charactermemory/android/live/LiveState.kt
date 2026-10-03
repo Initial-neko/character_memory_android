@@ -1,6 +1,7 @@
 package com.charactermemory.android.live
 
 import com.charactermemory.android.data.ServerConfig
+import com.charactermemory.android.data.LlmUsageDto
 import com.charactermemory.android.data.flag
 import com.charactermemory.android.data.items
 import com.charactermemory.android.data.text
@@ -8,10 +9,18 @@ import com.google.gson.JsonObject
 import java.security.MessageDigest
 import java.time.OffsetDateTime
 
-enum class LivePage { HOME, CHAT, SETTINGS, CHARACTER, ENSEMBLE, SPACE, IMAGE, DETAILS }
+enum class LivePage { HOME, CHAT, SETTINGS, CHARACTER, ENSEMBLE, SPACE, IMAGE, DETAILS, USAGE }
 data class ChatTarget(val id: String, val name: String, val group: Boolean, val conversationId: String,
     val memberIds: List<String> = emptyList())
-data class CommentReceipt(val id: String, val draftText: String, val replyTo: Long?, val replyWindow: SpaceReplyWindow? = null)
+data class CommentReceipt(val id: String, val draftText: String, val replyTo: Long?, val replyWindow: SpaceReplyWindow? = null, val mentions: List<String> = emptyList())
+data class PendingCommentRequest(
+    val content: String,
+    val replyTo: Long?,
+    val stickerId: String?,
+    val mentions: List<String>,
+    val clientRequestId: String
+)
+data class StickerPack(val id: String, val name: String, val stickers: List<JsonObject>)
 
 data class LiveState(
     val config: ServerConfig,
@@ -36,6 +45,11 @@ data class LiveState(
     val posts: List<JsonObject> = emptyList(), val spaceCursor: String? = null, val spacePaged: Boolean = false,
     val commentReceipts: Map<String, CommentReceipt> = emptyMap(),
     val confirmedComments: Map<String, List<JsonObject>> = emptyMap(),
+    val pendingCommentRequests: Map<String, PendingCommentRequest> = emptyMap(),
+    val spaceMentionCharacters: List<JsonObject> = emptyList(),
+    val spaceNotifications: List<JsonObject> = emptyList(), val spaceUnreadCount: Int = 0, val spaceNotificationError: String? = null,
+    val focusedSpacePostId: String? = null, val focusedSpaceCommentId: String? = null,
+    val llmUsage: LlmUsageDto? = null,
     val imagePrompt: String = "", val imageDraft: JsonObject? = null,
     val stickers: List<JsonObject> = emptyList(),
     val composeText: String = "", val characterPrompt: String = "", val ensemblePrompt: String = "",
@@ -67,6 +81,27 @@ object LiveRules {
     }
     fun shouldClearCommentDraft(text: String, replyTo: Long?, receipt: CommentReceipt): Boolean =
         text == receipt.draftText && replyTo == receipt.replyTo
+    fun shouldClearCommentDraft(text: String, replyTo: Long?, mentions: List<String>, receipt: CommentReceipt): Boolean =
+        text == receipt.draftText && replyTo == receipt.replyTo && mentions == receipt.mentions
+    fun validSpaceMentions(mentions: List<String>, activeCharacterIds: Set<String>): Boolean =
+        mentions.size <= 4 && mentions.distinct().size == mentions.size &&
+            mentions.all { it.isNotBlank() && it in activeCharacterIds }
+    fun commentRequestId(
+        pending: PendingCommentRequest?, content: String, replyTo: Long?, stickerId: String?, mentions: List<String>, newId: String
+    ): String = if (pending != null && pending.content == content && pending.replyTo == replyTo &&
+        pending.stickerId == stickerId && pending.mentions == mentions) pending.clientRequestId else newId
+    fun attachSpaceComment(post: JsonObject, comment: JsonObject, postId: String): JsonObject = post.deepCopy().apply {
+        if (text("id").isBlank()) addProperty("id", postId)
+        val comments = mergeRecords(items("comments"), listOf(comment))
+        add("comments", com.google.gson.JsonArray().apply { comments.forEach { add(it) } })
+    }
+    fun spaceRoleAttentionMarker(comment: JsonObject, comments: List<JsonObject>): String? {
+        if (comment.text("actor_type") != "CHARACTER") return null
+        if (comment.flag("mentions_user")) return "角色 @ 了你"
+        val replyTargetId = comment.text("reply_to_comment_id")
+        val target = comments.firstOrNull { it.text("id") == replyTargetId } ?: return null
+        return "角色回复了你".takeIf { target.text("actor_type") == "USER" }
+    }
     fun preserveConfirmedComments(post: JsonObject, confirmed: List<JsonObject>): JsonObject = post.deepCopy().apply {
         val merged = mergeRecords(confirmed, post.items("comments")).sortedWith(
             compareBy<JsonObject> { runCatching { OffsetDateTime.parse(it.text("created_at")).toInstant() }.getOrNull() }
@@ -78,6 +113,17 @@ object LiveRules {
         val current = existing.filter { turnId != null && it.text("turn_id") == turnId }
         if (turnId.isNullOrBlank() || incoming.text("turn_id") != turnId || incoming.text("character_id").isBlank()) return current
         return (current.filterNot { it.text("character_id") == incoming.text("character_id") } + incoming).takeLast(12)
+    }
+    fun stickerPacks(stickers: List<JsonObject>): List<StickerPack> {
+        val grouped = linkedMapOf<String, MutableList<JsonObject>>()
+        val names = linkedMapOf<String, String>()
+        stickers.forEach { sticker ->
+            val id = sticker.text("pack_id").ifBlank { "default" }
+            val name = sticker.text("pack_name").ifBlank { "内置" }
+            grouped.getOrPut(id) { mutableListOf() }.add(sticker)
+            if (id !in names) names[id] = name
+        }
+        return grouped.map { (id, items) -> StickerPack(id, names[id].orEmpty(), items.toList()) }
     }
 }
 

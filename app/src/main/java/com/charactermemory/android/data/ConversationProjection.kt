@@ -33,7 +33,7 @@ object ConversationProjection {
             else payload.text("event_type") == "USER_MESSAGE"
         result.addProperty("role", if (user) "user" else "assistant")
         if (user && metadata.has("display_text") && !metadata.get("display_text").isJsonNull) result.add("content", metadata.get("display_text").deepCopy())
-        listOf("action", "action_index", "sticker_id", "image_id", "media_id", "source_event_id", "source_event_type", "source_conversation_event_id", "mentions", "voice", "voice_url", "voice_status").forEach { key ->
+        listOf("action", "action_index", "sticker_id", "image_id", "media_id", "source_event_id", "source_event_type", "source_conversation_event_id", "mentions", "voice", "voice_url", "voice_status", "voice_media_id", "voice_duration_ms", "voice_error").forEach { key ->
             if (metadata.has(key)) result.add(key, metadata.get(key).deepCopy())
         }
         val mediaId = result.text("media_id")
