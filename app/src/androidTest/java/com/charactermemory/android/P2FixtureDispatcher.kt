@@ -14,6 +14,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /** Synthetic payloads mirror Core508c6f0 route schemas, not private user data. */
 internal class P2FixtureDispatcher : Dispatcher() {
+    @Volatile var historyDelayMs = 0L
     @Volatile var brokenSticker = false
     val writes = CopyOnWriteArrayList<Pair<String, JsonObject>>()
     val reads = CopyOnWriteArrayList<String>()
@@ -113,7 +114,7 @@ internal class P2FixtureDispatcher : Dispatcher() {
             "/v1/characters/rin/avatar", "/v1/characters/lex/avatar" -> json("""{"avatar_url":""}""")
             "/v1/chat/history-page", "/v1/groups/g1/history" -> {
                 val accepted = if (sent.get()) """,{"id":10,"role":"user","actor_type":"USER","actor_name":"我","content":"fixture send","event_time":"2026-10-02T10:01:00+08:00"}""" else ""
-                json("""{"character_id":"rin","group":{"id":"g1","name":"Fixture Group","member_ids":["rin","lex"]},"messages":[{"id":1,"role":"assistant","actor_type":"CHARACTER","actor_id":"rin","actor_name":"Rin","content":"fixture opening","event_time":"2026-10-02T10:00:00+08:00"}$accepted],"has_more":false,"next_before_id":null}""")
+                json("""{"character_id":"rin","group":{"id":"g1","name":"Fixture Group","member_ids":["rin","lex"]},"messages":[{"id":1,"role":"assistant","actor_type":"CHARACTER","actor_id":"rin","actor_name":"Rin","content":"fixture opening","event_time":"2026-10-02T10:00:00+08:00"}$accepted],"has_more":false,"next_before_id":null}""").setBodyDelay(historyDelayMs, TimeUnit.MILLISECONDS)
             }
             "/v1/events/stream" -> {
                 val group = request.requestUrl?.queryParameter("scope") == "group"

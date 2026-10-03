@@ -15,12 +15,10 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.charactermemory.android.audio.*
 
-/** An ASR result is a draft; only the existing Send button persists a user message. */
+internal class VoiceUiActions(val dictation: () -> Unit, val call: () -> Unit)
+
 @Composable
-internal fun LiveVoiceInput(model: LiveViewModel) {
-    val state by model.voice.state.collectAsStateWithLifecycle()
-    val settings by model.state.collectAsStateWithLifecycle()
-    val call by model.call.state.collectAsStateWithLifecycle()
+internal fun rememberVoiceUiActions(model: LiveViewModel): VoiceUiActions {
     val context = LocalContext.current
     var permissionTicket by remember { mutableStateOf<VoiceTaskTicket?>(null) }
     var callTicket by remember { mutableStateOf<Long?>(null) }
@@ -30,6 +28,26 @@ internal fun LiveVoiceInput(model: LiveViewModel) {
         permissionTicket = null
         callTicket = null
     }
+    return VoiceUiActions(dictation = {
+        model.voice.requestStart()?.let { next ->
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
+                model.voice.onPermissionResult(next, true)
+            else { permissionTicket = next; permission.launch(Manifest.permission.RECORD_AUDIO) }
+        }
+    }, call = {
+        model.requestCall()?.let { next ->
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
+                model.call.permission(next, true)
+            else { callTicket = next; permission.launch(Manifest.permission.RECORD_AUDIO) }
+        }
+    })
+}
+
+/** An ASR result is a draft; only the existing Send button persists a user message. */
+@Composable
+internal fun LiveVoiceInput(model: LiveViewModel) {
+    val state by model.voice.state.collectAsStateWithLifecycle()
+    val call by model.call.state.collectAsStateWithLifecycle()
     val ticket = state.ticket
     Column(Modifier.fillMaxWidth().testTag("live-voice-input")) {
         if (call.active) {
@@ -49,21 +67,6 @@ internal fun LiveVoiceInput(model: LiveViewModel) {
         }
         call.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("live-call-error")) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (state.phase in setOf(VoiceCoordinatorPhase.IDLE, VoiceCoordinatorPhase.ERROR)) {
-                TextButton(onClick = {
-                    val next = model.voice.requestStart() ?: return@TextButton
-                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
-                        model.voice.onPermissionResult(next, true)
-                    else { permissionTicket = next; permission.launch(Manifest.permission.RECORD_AUDIO) }
-                }, enabled = call.phase == "idle" && settings.config.mediaUrl.isNotBlank(), modifier = Modifier.testTag("live-asr-start")) { Text("语音输入") }
-                TextButton(onClick = {
-                    val next = model.requestCall() ?: return@TextButton
-                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
-                        model.call.permission(next, true)
-                    else { callTicket = next; permission.launch(Manifest.permission.RECORD_AUDIO) }
-                }, enabled = call.phase == "idle" && settings.config.mediaUrl.isNotBlank() && settings.streamStatus == "已连接" && "send" !in settings.busy,
-                    modifier = Modifier.testTag("live-call-start")) { Text("语音通话") }
-            }
             if (state.phase == VoiceCoordinatorPhase.RECORDING && ticket != null) {
                 TextButton(onClick = { model.voice.stop(ticket) }, modifier = Modifier.testTag("live-asr-stop")) {
                     Text("结束录音 ${state.elapsedMs / 1000}秒 / 30秒")

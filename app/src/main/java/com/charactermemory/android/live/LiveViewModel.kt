@@ -130,6 +130,8 @@ class LiveViewModel(
     private var activeWrites = 0
     private var historyLoading = false
     private var historyPaged = false
+    private val conversationCache = ConversationSnapshotCache()
+    private val refreshWindow = RefreshWindow(60_000L, { android.os.SystemClock.elapsedRealtime() })
     private var usageReturnPage = LivePage.SETTINGS
     private var pendingMemberProgress: List<JsonObject> = emptyList()
 
@@ -148,7 +150,7 @@ class LiveViewModel(
         // Persist normalized legacy routing, so upgrades do not keep sending Media requests to Core.
         val resolvedConfig = mutable.value.config
         if (resolvedConfig.coreUrl.isNotBlank()) preferences.edit().putString("core", resolvedConfig.coreUrl).putString("media", resolvedConfig.mediaUrl).apply()
-        refresh(); checkHealth(); loadSpaceNotifications(); startSpaceNotificationPolling()
+        refresh(); loadStickers(); checkHealth(); loadSpaceNotifications(); startSpaceNotificationPolling()
     }
 
     internal fun update(transform: (LiveState) -> LiveState) = mutable.update(transform)
@@ -163,6 +165,8 @@ class LiveViewModel(
     }
 
     private fun cancelSession(reason: String? = null, stopCapture: Boolean = true) {
+        cacheConversation()
+        refreshWindow.cancelInFlight()
         if (stopCapture) { screenEpoch++; com.charactermemory.android.screen.ScreenShareService.stop(appContext) }
         call.end()
         voice.invalidate()
@@ -223,15 +227,17 @@ class LiveViewModel(
             update { it.copy(error = error.message ?: "服务器地址无效") }; return
         }
         cancelSession()
+        clearLoadingCaches()
         preferences.edit().putString("core", config.coreUrl).putString("media", config.mediaUrl).apply()
         api = apiFactory(config)
         lastEventId = null
         update { LiveState(config, page = LivePage.SETTINGS, notice = "配置已保存在此手机。") }
-        refresh(); checkHealth(); loadSpaceNotifications(); startSpaceNotificationPolling()
+        refresh(); loadStickers(); checkHealth(); loadSpaceNotifications(); startSpaceNotificationPolling()
     }
     fun resetConfig() {
         spaceNotificationPoll?.cancel(); spaceNotificationPoll = null
         cancelSession(); preferences.edit().remove("core").remove("media").apply()
+        clearLoadingCaches()
         val config = ServerConfig("", "")
         api = apiFactory(config); lastEventId = null
         update { LiveState(config, page = LivePage.SETTINGS, notice = "服务器配置已清除。") }
@@ -254,27 +260,68 @@ class LiveViewModel(
         }
     }
 
-    fun refresh() {
+    private fun clearLoadingCaches() {
+        conversationCache.clear()
+        refreshWindow.clear()
+    }
+
+    private fun conversationKey(target: ChatTarget): ConversationCacheKey = mutable.value.config.let {
+        ConversationCacheKey(it.coreUrl, it.mediaUrl, target.group, target.id, target.conversationId)
+    }
+
+    private fun cacheConversation() {
+        val current = mutable.value
+        val target = current.target ?: return
+        conversationCache.put(conversationKey(target), current.messages, current.historyCursor, historyPaged)
+    }
+
+    private fun cachedRead(key: String, force: Boolean = false, block: suspend (CoreApi) -> Unit) {
+        if (!active || mutable.value.config.coreUrl.isBlank() || key in mutable.value.busy) return
+        val ticket = refreshWindow.begin(key, force) ?: return
+        val generation = fence.current
+        operation(key) { client ->
+            var success = false
+            try {
+                block(client)
+                currentCoroutineContext().ensureActive()
+                success = fence.accepts(generation)
+            } finally {
+                refreshWindow.finish(ticket, success)
+            }
+        }
+    }
+
+    /** Explicit refresh remains forced; routine navigation reuses successful short-lived reads. */
+    fun refresh() = refresh(force = true)
+    fun refresh(force: Boolean) {
         if (mutable.value.config.coreUrl.isBlank()) return
-        operation("roster") { client ->
+        // A navigation cancellation may have stopped avatars after the roster succeeded.
+        // Retry those unfinished reads even while the roster itself is still fresh.
+        if (!force) refreshAvatars(mutable.value.characters, force = false)
+        cachedRead("roster", force) { client ->
             val characters = client.get("/v1/characters").items("characters")
             currentCoroutineContext().ensureActive()
             update { it.copy(characters = characters) }
-            characters.forEach { profile ->
-                val id = profile.text("id")
-                operation("avatar-$id") { avatarClient ->
-                    val avatar = avatarClient.get("/v1/characters/${pathId(id)}/avatar").text("avatar_url")
-                    currentCoroutineContext().ensureActive(); update { it.copy(avatars = it.avatars + (id to avatar)) }
-                }
-            }
+            refreshAvatars(characters, force)
         }
-        operation("summaries") { client ->
+        cachedRead("summaries", force) { client ->
             val rows = client.get("/v1/characters/summaries").items("characters")
             currentCoroutineContext().ensureActive(); update { it.copy(summaries = rows.associateBy { row -> row.text("id") }) }
         }
-        operation("groups") { client ->
+        cachedRead("groups", force) { client ->
             val groups = client.get("/v1/groups").items("groups")
             currentCoroutineContext().ensureActive(); update { it.copy(groups = groups) }
+        }
+    }
+
+    private fun refreshAvatars(characters: List<JsonObject>, force: Boolean) {
+        characters.forEach { profile ->
+            val id = profile.text("id")
+            cachedRead("avatar-$id", force) { client ->
+                val avatar = client.get("/v1/characters/${pathId(id)}/avatar").text("avatar_url")
+                currentCoroutineContext().ensureActive()
+                update { it.copy(avatars = it.avatars + (id to avatar)) }
+            }
         }
     }
 
@@ -297,9 +344,10 @@ class LiveViewModel(
     }
     private fun select(target: ChatTarget) {
         cancelSession()
-        lastEventId = null; reconnectAttempt = 0; historyPaged = false
-        update { it.copy(page = LivePage.CHAT, target = target, messages = emptyList(), composeText = "",
-            historyCursor = null, memberProgress = emptyList(), groupTurnId = null, reactionError = null, imageDraft = null,
+        val cached = conversationCache.get(conversationKey(target))
+        lastEventId = null; reconnectAttempt = 0; historyPaged = cached?.historyPaged ?: false
+        update { it.copy(page = LivePage.CHAT, target = target, messages = cached?.messages ?: emptyList(), composeText = "",
+            historyCursor = cached?.historyCursor, memberProgress = emptyList(), groupTurnId = null, reactionError = null, imageDraft = null,
             imagePrompt = "", imageInstruction = "", error = null, persona = null,
             imageCharacterId = if (target.group) target.memberIds.firstOrNull().orEmpty() else target.id) }
         loadHistory(); connectStream()
@@ -326,7 +374,7 @@ class LiveViewModel(
         if (old !in chatPages && old !in setOf(LivePage.HOME, LivePage.SETTINGS) && old != page) cancelSession()
         update { it.copy(page = page, error = null, capacityConfirmation = null) }
         when (page) {
-            LivePage.HOME -> refresh()
+            LivePage.HOME -> refresh(force = false)
             LivePage.SPACE -> { loadSpace(); loadSpaceNotifications(); loadSpaceMentionCharacters() }
             LivePage.ENSEMBLE -> resumeEnsemble()
             LivePage.IMAGE -> loadStickers()
@@ -348,8 +396,9 @@ class LiveViewModel(
     }
 
     fun loadHistory(older: Boolean = false) {
-        if (historyLoading || !active) return
+        if (historyLoading || !active || mutable.value.config.coreUrl.isBlank()) return
         val target = mutable.value.target ?: return
+        val generation = fence.current
         val before = if (older) mutable.value.historyCursor ?: return else null
         historyLoading = true
         operation("history") { client ->
@@ -360,13 +409,19 @@ class LiveViewModel(
                 val atRequest = state.value.messages.map { it.deepCopy() }
                 val page = client.get(if (target.group) "/v1/groups/${pathId(target.id)}/history" else "/v1/chat/history-page", query)
                 currentCoroutineContext().ensureActive()
-                update { it.copy(messages = ConversationProjection.reconcileHistory(it.messages, page.items("messages"), atRequest),
-                    historyCursor = if (older || !historyPaged) LiveRules.nextCursor(page) else it.historyCursor,
+                if (!fence.accepts(generation)) return@operation
+                val current = state.value
+                val refreshed = ConversationHistoryRefresh.reconcile(
+                    ConversationSnapshot(current.messages, current.historyCursor, historyPaged),
+                    page.items("messages"), atRequest, LiveRules.nextCursor(page), older)
+                update { it.copy(messages = refreshed.messages,
+                    historyCursor = refreshed.historyCursor,
                     groupTurnId = if (target.group && it.groupTurnId == null && "send" !in it.busy)
                         page.items("messages").lastOrNull { message -> message.text("role") == "user" }?.text("turn_id")?.takeIf { id -> id.isNotBlank() }
                         else it.groupTurnId) }
-                if (older) historyPaged = true
-            } finally { if (currentCoroutineContext().isActive) historyLoading = false }
+                historyPaged = refreshed.historyPaged
+                cacheConversation()
+            } finally { if (fence.accepts(generation)) historyLoading = false }
         }
     }
 
@@ -457,7 +512,8 @@ class LiveViewModel(
             loadHistory()
         }
     }
-    fun loadStickers() = operation("stickers") { client ->
+    fun loadStickers() = loadStickers(force = false)
+    fun loadStickers(force: Boolean) = cachedRead("stickers", force) { client ->
         val stickers = client.get("/v1/stickers").items("stickers")
         currentCoroutineContext().ensureActive(); update { it.copy(stickers = stickers) }
     }
@@ -473,7 +529,7 @@ class LiveViewModel(
     fun activate() {
         if (active) return
         active = true
-        refresh(); checkHealth()
+        refresh(force = false); loadStickers(); checkHealth()
         loadSpaceNotifications(); startSpaceNotificationPolling()
         if (mutable.value.page in setOf(LivePage.CHAT, LivePage.IMAGE, LivePage.DETAILS)) { loadHistory(); connectStream() }
         if (mutable.value.page == LivePage.SPACE) { loadSpace(); loadSpaceMentionCharacters() }
@@ -492,7 +548,7 @@ class LiveViewModel(
     }
     override fun onCleared() {
         active = false; spaceNotificationPoll?.cancel(); spaceNotificationPoll = null
-        cancelSession(); session.cancel(); super.onCleared()
+        cancelSession(); clearLoadingCaches(); session.cancel(); super.onCleared()
     }
 
     companion object {

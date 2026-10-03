@@ -28,6 +28,7 @@ P2_SCREENS = (
     "p2-17-call-listening.png", "p2-18-call-speaking.png",
     "p2-19-visual-controls.png",
     "p2-20-media-routing-error.png",
+    "p2-21-composer-tools.png",
 )
 
 

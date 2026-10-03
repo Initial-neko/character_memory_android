@@ -17,6 +17,10 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.hasStateDescription
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -99,13 +103,20 @@ class VoiceMessageUiTest {
         compose.onNodeWithTag(playTag).assertDoesNotExist()
     }
 
+    @Test fun readyAudioUsesACompactPlaybackControl() {
+        render(message("ready", mediaId = "asset-1"), wavFile.toURI().toString())
+        val bounds = compose.onNodeWithTag(playTag).fetchSemanticsNode().boundsInWindow
+        val density = compose.activity.resources.displayMetrics.density
+        assertTrue("Playback control should be an icon, not a full text button", bounds.width <= 48 * density + 1)
+    }
+
     @Test fun readyWithAssetShowsExplicitPlayActionWithoutStartingOnComposition() {
         render(message("ready", mediaId = "asset-1"), wavFile.toURI().toString())
 
         compose.onNodeWithTag("$tag-content").assertIsDisplayed().assertTextContains("persisted words", substring = true)
         compose.onNodeWithTag("$tag-status").assertTextContains("语音已就绪", substring = true)
-        compose.onNodeWithTag(playTag).assertIsDisplayed().assertTextContains("播放语音", substring = true)
-        compose.onNodeWithTag(playTag).assertTextContains("· 播放", substring = true)
+        compose.onNodeWithTag(playTag).assertIsDisplayed().assert(hasContentDescription("播放语音"))
+        compose.onNodeWithTag(playTag).assert(hasStateDescription("播放"))
     }
 
     @Test fun readyWithoutAssetIdKeepsTranscriptAndExplainsUnavailableAudio() {
@@ -140,7 +151,7 @@ class VoiceMessageUiTest {
 
         compose.runOnUiThread { lifecycleOwner.registry.handleLifecycleEvent(Lifecycle.Event.ON_STOP) }
         compose.waitForIdle()
-        compose.onNodeWithTag(playTag).assertTextContains("· 播放", substring = true)
+        compose.onNodeWithTag(playTag).assert(hasStateDescription("播放"))
 
         compose.runOnUiThread {
             lifecycleOwner.registry.handleLifecycleEvent(Lifecycle.Event.ON_START)
@@ -155,7 +166,7 @@ class VoiceMessageUiTest {
         render(message("ready", mediaId = "asset-1"), missingFile.toURI().toString())
         compose.onNodeWithTag(playTag).performClick()
         waitForPlayerLabel("点击重试")
-        compose.onNodeWithTag(playTag).assertTextContains("播放失败", substring = true)
+        compose.onNodeWithTag(playTag).assert(playbackStateContains("播放失败"))
 
         compose.onNodeWithTag(playTag).performClick()
         waitForPlayerLabel("点击重试")
@@ -167,7 +178,7 @@ class VoiceMessageUiTest {
         waitForPlayerLabel("停止")
 
         render(message("ready", mediaId = "asset-1"), wavFile.toURI().toString(), "$ownerKey-next")
-        compose.onNodeWithTag(playTag).assertTextContains("· 播放", substring = true)
+        compose.onNodeWithTag(playTag).assert(hasStateDescription("播放"))
         compose.onNodeWithTag(playTag).performClick()
         waitForPlayerLabel("停止")
     }
@@ -186,7 +197,7 @@ class VoiceMessageUiTest {
         render(message("ready", mediaId = "asset-1"), missingFile.toURI().toString())
         compose.onNodeWithTag(playTag).performClick()
         waitForPlayerLabel("点击重试")
-        compose.onNodeWithTag(playTag).assertTextContains("播放失败", substring = true)
+        compose.onNodeWithTag(playTag).assert(playbackStateContains("播放失败"))
         captureScreenshot("p2-15-voice-playback-error.png")
     }
 
@@ -267,10 +278,10 @@ class VoiceMessageUiTest {
 
     private fun waitForPlayerLabel(value: String) {
         compose.waitUntil(10_000) {
-            runCatching { compose.onNodeWithTag(playTag).assertTextContains(value, substring = true) }.isSuccess
+            runCatching { compose.onNodeWithTag(playTag).assert(playbackStateContains(value)) }.isSuccess
         }
         assertTrue("Playback control should show '$value'", runCatching {
-            compose.onNodeWithTag(playTag).assertTextContains(value, substring = true)
+            compose.onNodeWithTag(playTag).assert(playbackStateContains(value))
         }.isSuccess)
     }
 
@@ -302,4 +313,8 @@ class VoiceMessageUiTest {
         val registry = LifecycleRegistry(this)
         override val lifecycle: Lifecycle get() = registry
     }
+}
+
+private fun playbackStateContains(value: String) = androidx.compose.ui.test.SemanticsMatcher("playback state contains $value") {
+    it.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.StateDescription)?.contains(value) == true
 }

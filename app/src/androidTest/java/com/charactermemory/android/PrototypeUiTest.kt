@@ -77,11 +77,20 @@ class PrototypeUiTest {
     private fun awaitCompactWindow() {
         // wm size triggers Activity recreation. Semantics from the previous
         // window must not receive taps before the compact window owns focus.
-        compose.waitUntil(10_000) {
-            val decor = compose.activity.window.decorView
-            decor.width == 720 && decor.hasWindowFocus() &&
-                compose.onAllNodes(hasTestTag("character-rin")).fetchSemanticsNodes().size == 1
+        var diagnostic = "not sampled"
+        try {
+            compose.waitUntil(10_000) {
+                val decor = compose.activity.window.decorView
+                val homes = compose.onAllNodes(hasTestTag("screen-home")).fetchSemanticsNodes().size
+                diagnostic = "width=${decor.width}, height=${decor.height}, focus=${decor.hasWindowFocus()}, homes=$homes"
+                decor.width == 720 && decor.hasWindowFocus() && homes == 1
+            }
+        } catch (failure: androidx.compose.ui.test.ComposeTimeoutException) {
+            throw AssertionError("Compact window did not settle: $diagnostic", failure)
         }
+        // The compact viewport can end before the first character. LazyColumn
+        // has no semantics for that item until it is scrolled into composition.
+        compose.onNodeWithTag("screen-home").performScrollToNode(hasTestTag("character-rin"))
     }
 
     private fun screenshot(name: String, expectedTag: String) {

@@ -15,8 +15,10 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.hasStateDescription
 import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -159,6 +161,10 @@ class LiveApiUiTest {
         compose.waitUntil(10_000) { compose.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty() }
     }
     private fun tap(tag: String, scroll: Boolean = false) {
+        if (tag in setOf("live-image-open", "live-call-start") && compose.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isEmpty()) {
+            closeActualIme()
+            compose.onNodeWithTag("live-visual-tools").performClick()
+        }
         waitTag(tag)
         // Compose owns the actionable node; dialogs and the IME may own window focus.
         // Tests that require the actual IME assert its platform insets separately.
@@ -323,6 +329,78 @@ class LiveApiUiTest {
         assertEquals(2, confirmation.single().second.getAsJsonArray("selected_indices").size())
     }
 
+    @Test fun returningToChatShowsCachedHistoryBeforeSlowRefreshAndReusesDirectories() {
+        tap("live-character-rin")
+        compose.waitUntil(10_000) { model.state.value.messages.isNotEmpty() && "history" !in model.state.value.busy && "stickers" !in model.state.value.busy }
+        val rosterReads = dispatcher.reads.count { it == "/v1/characters" }
+        val stickerReads = dispatcher.reads.count { it == "/v1/stickers" }
+        val avatarReads = dispatcher.reads.count { it.endsWith("/avatar") }
+        dispatcher.historyDelayMs = 2_000
+        compose.runOnUiThread { model.show(LivePage.HOME); model.openCharacter("rin") }
+        assertTrue("Cached history must exist while refresh is still running", model.state.value.messages.isNotEmpty())
+        assertTrue("Authoritative refresh must still run", "history" in model.state.value.busy)
+        compose.onNodeWithTag("live-message-1").assertIsDisplayed()
+        compose.waitUntil(10_000) { "history" !in model.state.value.busy }
+        assertEquals(rosterReads, dispatcher.reads.count { it == "/v1/characters" })
+        assertEquals(stickerReads, dispatcher.reads.count { it == "/v1/stickers" })
+        assertEquals(avatarReads, dispatcher.reads.count { it.endsWith("/avatar") })
+        compose.runOnUiThread { model.refresh(); model.loadStickers(true) }
+        compose.waitUntil(10_000) { "roster" !in model.state.value.busy && "stickers" !in model.state.value.busy }
+        assertTrue(dispatcher.reads.count { it == "/v1/characters" } > rosterReads)
+        assertTrue(dispatcher.reads.count { it == "/v1/stickers" } > stickerReads)
+        assertTrue(dispatcher.writes.isEmpty())
+    }
+
+    @Test fun completedSpeechIsReusedAfterLeavingAndReturningToChat() {
+        ttsAvailable = true
+        tap("live-character-rin")
+        tap("live-message-tts-1")
+        compose.waitUntil(10_000) { compose.onAllNodes(hasTestTag("live-message-tts-1") and hasStateDescription("停止")).fetchSemanticsNodes().isNotEmpty() }
+        compose.runOnUiThread { model.show(LivePage.HOME); model.openCharacter("rin") }
+        tap("live-message-tts-1")
+        compose.waitUntil(10_000) { compose.onAllNodes(hasTestTag("live-message-tts-1") and hasStateDescription("停止")).fetchSemanticsNodes().isNotEmpty() }
+        assertEquals("A completed speech cache hit must not synthesize again", 1, ttsRequests.get())
+        assertTrue(dispatcher.writes.isEmpty())
+    }
+
+    @Test fun composerKeepsVoiceAndEmojiInlineAndCallInsideTools() {
+        tap("live-character-rin")
+        compose.onNodeWithTag("live-voice-mode").assertIsDisplayed()
+        compose.onNodeWithTag("live-asr-start").assertIsDisplayed()
+        compose.onNodeWithTag("live-stickers-open").assertIsDisplayed()
+        compose.onNodeWithTag("live-call-start").assertDoesNotExist()
+        compose.onNodeWithTag("live-image-open").assertDoesNotExist()
+        val input = compose.onNodeWithTag("live-chat-input").fetchSemanticsNode().boundsInWindow
+        val emoji = compose.onNodeWithTag("live-stickers-open").fetchSemanticsNode().boundsInWindow
+        assertTrue("Emoji must share the input row", emoji.center.y in input.top..input.bottom)
+        tap("live-visual-tools")
+        compose.onNodeWithTag("live-call-start").assertIsDisplayed()
+        compose.onNodeWithTag("live-image-open").assertIsDisplayed()
+        screenshot("21-composer-tools", "live-chat")
+    }
+
+    @Test fun selfieSwitchAlsoControlsAvatarReferenceWithoutASecondOption() {
+        tap("live-character-rin")
+        tap("live-image-open")
+        compose.onNodeWithTag("live-image-avatar").assertDoesNotExist()
+        tap("live-image-selfie", true)
+        compose.onNodeWithTag("live-image-instruction").performTextInput("quiet coffee shop")
+        tap("live-image-generate", true)
+        waitTag("live-image-draft")
+        compose.waitUntil(10_000) { "image-generate" !in model.state.value.busy }
+        val selfie = dispatcher.writes.last { it.first.endsWith("/images/generate") }.second
+        assertEquals("SELFIE", selfie.text("purpose"))
+        assertTrue(selfie.get("use_avatar_reference").asBoolean)
+        closeActualIme()
+        tap("live-image-selfie", true)
+        tap("live-image-generate", true)
+        compose.waitUntil(10_000) { dispatcher.writes.count { it.first.endsWith("/images/generate") } == 2 }
+        val scene = dispatcher.writes.last { it.first.endsWith("/images/generate") }.second
+        assertEquals("SCENE", scene.text("purpose"))
+        assertFalse(scene.get("use_avatar_reference").asBoolean)
+        assertFalse(dispatcher.writes.any { it.first == "/v1/chat/messages" })
+    }
+
     @Test fun generatedImageRemainsDraftUntilUserExplicitlySends() {
         tap("live-character-rin")
         tap("live-image-open")
@@ -439,17 +517,17 @@ class LiveApiUiTest {
         waitTag("live-message-tts-1")
         tap("live-message-tts-1")
         compose.waitUntil(10_000) {
-            compose.onAllNodes(hasTestTag("live-message-tts-1") and hasText("朗读失败", substring = true)).fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodes(hasTestTag("live-message-tts-1") and playbackStateContains("朗读失败")).fetchSemanticsNodes().isNotEmpty()
         }
         assertEquals(1, ttsRequests.get())
         ttsAvailable = true
         tap("live-message-tts-1")
         compose.waitUntil(10_000) {
-            compose.onAllNodes(hasTestTag("live-message-tts-1") and hasText("停止", substring = true)).fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodes(hasTestTag("live-message-tts-1") and hasStateDescription("停止")).fetchSemanticsNodes().isNotEmpty()
         }
         screenshot("16-tts-playback", "live-chat")
         tap("live-message-tts-1")
-        compose.onNodeWithTag("live-message-tts-1").assertTextContains("播放", substring = true)
+        compose.onNodeWithTag("live-message-tts-1").assert(hasStateDescription("播放"))
         assertEquals(2, ttsRequests.get())
         assertFalse(dispatcher.writes.any { it.first == "/v1/chat/messages" })
     }
@@ -850,4 +928,8 @@ class LiveApiUiTest {
         assertEquals(listOf("51", "59"), comments.map { it.text("id") })
         assertEquals("我看到你喊我啦。", comments.single { it.text("id") == "59" }.text("content"))
     }
+}
+
+private fun playbackStateContains(value: String) = androidx.compose.ui.test.SemanticsMatcher("playback state contains $value") {
+    it.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.StateDescription)?.contains(value) == true
 }

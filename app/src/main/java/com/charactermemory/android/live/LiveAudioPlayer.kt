@@ -37,9 +37,8 @@ internal fun LiveAudioPlayerButton(url: String, label: String, tag: String, play
             LiveAudioPlayback.release(playbackOwner)
         }
     }
-    TextButton(onClick = { LiveAudioPlayback.toggle(playbackOwner, url) },
-        enabled = url.isNotBlank() && !LiveAudioPlayback.blocked, modifier = Modifier.testTag(tag)) {
-        Text("$label · $status")
+    LivePlaybackAction(label, status, tag, url.isNotBlank() && !LiveAudioPlayback.blocked) {
+        LiveAudioPlayback.toggle(playbackOwner, url)
     }
 }
 
