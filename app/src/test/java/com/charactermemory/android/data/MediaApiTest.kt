@@ -32,6 +32,16 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 class MediaApiTest {
+    @Test fun callSourceIsExplicitAndUsesTheSameOneShotMediaRoute() = runBlocking {
+        MockWebServer().use { server ->
+            server.start()
+            server.enqueue(MockResponse().setBody("""{"text":"call transcript"}"""))
+            val api = MediaApi(ServerConfig(server.url("/").toString(), server.url("/").toString()))
+            api.transcribe(Pcm16Wav.encode(byteArrayOf(1, 0)), source = "call")
+            assertEquals("call", server.takeRequest().getHeader("X-ASR-Source"))
+            assertEquals(1, server.requestCount)
+        }
+    }
     @Test fun postsRawWavToConfiguredMediaOriginAndReturnsNonEmptyTextWithoutCallingCore() = runBlocking {
         MockWebServer().use { core -> MockWebServer().use { media ->
             core.start()

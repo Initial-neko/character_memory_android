@@ -153,9 +153,12 @@ jobs:
       - name: Summarize P1 instrumented evidence
         if: always()
         run: python3 scripts/summarize_evidence.py --mode emulator --output artifacts/p1-emulator-evidence.json
+      - name: Print bounded instrumented failure details
+        if: always()
+        run: python3 scripts/print_ui_failures.py
       - name: Summarize P2 instrumented evidence
         if: always()
-        run: python3 scripts/summarize_evidence.py --mode emulator --profile p2 --min-tests 34 --output artifacts/p2-emulator-evidence.json
+        run: python3 scripts/summarize_evidence.py --mode emulator --profile p2 --min-tests 36 --output artifacts/p2-emulator-evidence.json
       - name: Upload screenshots / reports / logs
         if: always()
         uses: actions/upload-artifact@v4

@@ -17,6 +17,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.CompletableDeferred
+import java.io.IOException
 
 /** One app-wide MediaPlayer owner shared by chat voice messages and Space attachments. */
 @Composable
@@ -62,14 +64,21 @@ internal object LiveAudioPlayback {
     private var activeOwner: String? = null
     private var activePlayer: MediaPlayer? = null
     private var generation: Long = 0L
+    private var completion: CompletableDeferred<Unit>? = null
 
     fun status(owner: String): String {
         val current = state.value
         return if (current.owner == owner) current.status else "播放"
     }
 
-    fun toggle(owner: String, url: String) {
-        if (blocked) return
+    fun toggle(owner: String, url: String) = play(owner, url, false)
+    suspend fun playCall(owner: String, url: String) {
+        play(owner, url, true)
+        val finished = completion?.takeIf { activeOwner == owner } ?: throw IOException("音频播放未启动")
+        try { finished.await() } finally { stop(owner) }
+    }
+    private fun play(owner: String, url: String, allowBlocked: Boolean) {
+        if (blocked && !allowBlocked) return
         speechRequests.cancelAll()
         if (activeOwner == owner && activePlayer != null) {
             stop(owner)
@@ -93,6 +102,7 @@ internal object LiveAudioPlayback {
         created.setAudioAttributes(attributes)
         activeOwner = owner
         activePlayer = created
+        completion = CompletableDeferred()
         state.value = UiState(owner, "加载中…")
         created.setOnPreparedListener { prepared ->
             if (isCurrent(owner, prepared, ticket)) {
@@ -134,9 +144,12 @@ internal object LiveAudioPlayback {
         runCatching { player.release() }
         abandonFocus()
         state.value = UiState(owner, status)
+        val finished = completion; completion = null
+        if (status == "播放") finished?.complete(Unit) else finished?.completeExceptionally(IOException(status))
     }
 
     private fun releasePlayer() {
+        completion?.completeExceptionally(IOException("音频播放已停止")); completion = null
         val oldPlayer = activePlayer
         activePlayer = null
         activeOwner = null

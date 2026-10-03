@@ -12,9 +12,11 @@ import java.util.concurrent.CountDownLatch
 
 /** Captures one bounded mono PCM16 segment. Call [cancel] when the owner leaves or backgrounds. */
 class AudioRecordRecorder internal constructor(
-    private val inputFactory: AudioInputFactory
+    private val inputFactory: AudioInputFactory,
+    private val segmenter: PcmSpeechSegmenter? = null
 ) {
     constructor() : this(AndroidAudioInputFactory())
+    constructor(segmenter: PcmSpeechSegmenter) : this(AndroidAudioInputFactory(), segmenter)
 
     private enum class State { NEW, INITIALIZING, RECORDING, STOP_REQUESTED, CANCEL_REQUESTED, FINISHED }
 
@@ -112,10 +114,11 @@ class AudioRecordRecorder internal constructor(
                 }
                 sampleCount += read
                 onDurationMs(sampleCount.toLong() * 1_000L / SAMPLE_RATE_HZ)
+                segmenter?.accept(readBuffer, read)?.let { return it }
             }
 
             if (sampleCount == 0) throw IllegalStateException("Recording contains no PCM samples")
-            val result = pcm.toByteArray()
+            val result = segmenter?.finish() ?: pcm.toByteArray()
             synchronized(lock) {
                 if (state == State.CANCEL_REQUESTED) throw CancellationException("Recording cancelled")
                 state = State.FINISHED

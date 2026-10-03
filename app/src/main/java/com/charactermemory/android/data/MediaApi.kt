@@ -31,7 +31,8 @@ class MediaApi(val config: ServerConfig, client: OkHttpClient = OkHttpClient()) 
         .callTimeout(90, TimeUnit.SECONDS)
         .build()
 
-    suspend fun transcribe(wav: ByteArray): JsonObject {
+    suspend fun transcribe(wav: ByteArray, source: String = "dictation"): JsonObject {
+        require(source in setOf("dictation", "call")) { "Unknown ASR source" }
         require(wav.isNotEmpty()) { "WAV audio must not be empty" }
         require(wav.size <= Pcm16Wav.MAX_WAV_BYTES) { "WAV audio exceeds 30 seconds" }
         val audio = wav.copyOf()
@@ -43,7 +44,7 @@ class MediaApi(val config: ServerConfig, client: OkHttpClient = OkHttpClient()) 
         }
         val request = Request.Builder()
             .url(asrUrl())
-            .header("X-ASR-Source", "dictation")
+            .header("X-ASR-Source", source)
             .post(body)
             .build()
 

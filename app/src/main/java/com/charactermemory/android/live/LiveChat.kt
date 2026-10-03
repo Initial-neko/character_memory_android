@@ -77,6 +77,7 @@ internal fun PersistedVoiceMessageContent(message: JsonObject, assetUrl: String,
 @Composable
 internal fun LiveChat(state: LiveState, model: LiveViewModel) {
     val target = state.target ?: return
+    val callState by model.call.state.collectAsStateWithLifecycle()
     var showStickers by rememberSaveable(target.id) { mutableStateOf(false) }
     var selectedStickerPackId by rememberSaveable(target.id) { mutableStateOf("") }
     val stickerPacks = remember(state.stickers) { LiveRules.stickerPacks(state.stickers) }
@@ -212,13 +213,13 @@ internal fun LiveChat(state: LiveState, model: LiveViewModel) {
         }
         Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Bottom) {
             if (imeVisible && !showTools) LiveIconAction(LiveSymbol.TOOLS, "展开聊天工具", "live-chat-tools") { showTools = true }
-            OutlinedTextField(state.composeText, model::editText, placeholder = { Text("输入消息…", fontSize = 14.sp) }, maxLines = 4,
+            OutlinedTextField(state.composeText, model::editText, enabled = !callState.active, placeholder = { Text("输入消息…", fontSize = 14.sp) }, maxLines = 4,
                 shape = RoundedCornerShape(17.dp), textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 23.sp),
                 modifier = Modifier.weight(1f).testTag("live-chat-input"))
             LiveIconAction(LiveSymbol.SEND, if ("send" in state.busy) "正在发送" else "发送消息", "live-chat-send",
-                "send" !in state.busy && state.composeText.isNotBlank()) { model.send() }
+                !callState.active && "send" !in state.busy && state.composeText.isNotBlank()) { model.send() }
         }
-        if (!imeVisible || model.voice.state.collectAsStateWithLifecycle().value.phase != com.charactermemory.android.audio.VoiceCoordinatorPhase.IDLE)
+        if (!imeVisible || callState.active || model.voice.state.collectAsStateWithLifecycle().value.phase != com.charactermemory.android.audio.VoiceCoordinatorPhase.IDLE)
             LiveVoiceInput(model)
     }
 }

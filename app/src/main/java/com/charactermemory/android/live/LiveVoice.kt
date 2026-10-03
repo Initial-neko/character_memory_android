@@ -20,14 +20,34 @@ import com.charactermemory.android.audio.*
 internal fun LiveVoiceInput(model: LiveViewModel) {
     val state by model.voice.state.collectAsStateWithLifecycle()
     val settings by model.state.collectAsStateWithLifecycle()
+    val call by model.call.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var permissionTicket by remember { mutableStateOf<VoiceTaskTicket?>(null) }
+    var callTicket by remember { mutableStateOf<Long?>(null) }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         permissionTicket?.let { model.voice.onPermissionResult(it, granted) }
+        callTicket?.let { model.call.permission(it, granted) }
         permissionTicket = null
+        callTicket = null
     }
     val ticket = state.ticket
     Column(Modifier.fillMaxWidth().testTag("live-voice-input")) {
+        if (call.active) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(when (call.phase) {
+                    "permission" -> "等待麦克风授权"
+                    "transcribing" -> "通话 · 正在转写"
+                    "speaking" -> "${call.speaker ?: "角色"}正在说话 · 麦克风暂停"
+                    "waiting" -> "通话 · 等待回应，可继续说话"
+                    else -> "通话 · 正在听"
+                }, modifier = Modifier.weight(1f).testTag("live-call-status"))
+                TextButton(onClick = { model.call.end() }, modifier = Modifier.testTag("live-call-hangup")) { Text("挂断") }
+            }
+            if (call.transcript.isNotBlank()) Text("你：${call.transcript} · 待发送 ${call.pendingCount}段", modifier = Modifier.testTag("live-call-transcript"))
+            call.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("live-call-error")) }
+            return@Column
+        }
+        call.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("live-call-error")) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (state.phase in setOf(VoiceCoordinatorPhase.IDLE, VoiceCoordinatorPhase.ERROR)) {
                 TextButton(onClick = {
@@ -35,7 +55,14 @@ internal fun LiveVoiceInput(model: LiveViewModel) {
                     if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
                         model.voice.onPermissionResult(next, true)
                     else { permissionTicket = next; permission.launch(Manifest.permission.RECORD_AUDIO) }
-                }, enabled = settings.config.mediaUrl.isNotBlank(), modifier = Modifier.testTag("live-asr-start")) { Text("语音输入") }
+                }, enabled = call.phase == "idle" && settings.config.mediaUrl.isNotBlank(), modifier = Modifier.testTag("live-asr-start")) { Text("语音输入") }
+                TextButton(onClick = {
+                    val next = model.requestCall() ?: return@TextButton
+                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
+                        model.call.permission(next, true)
+                    else { callTicket = next; permission.launch(Manifest.permission.RECORD_AUDIO) }
+                }, enabled = call.phase == "idle" && settings.config.mediaUrl.isNotBlank() && settings.streamStatus == "已连接" && "send" !in settings.busy,
+                    modifier = Modifier.testTag("live-call-start")) { Text("语音通话") }
             }
             if (state.phase == VoiceCoordinatorPhase.RECORDING && ticket != null) {
                 TextButton(onClick = { model.voice.stop(ticket) }, modifier = Modifier.testTag("live-asr-stop")) {

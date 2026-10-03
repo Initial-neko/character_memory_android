@@ -30,6 +30,7 @@ internal class P2FixtureDispatcher : Dispatcher() {
     @Volatile var spaceFeedEmpty = false
     @Volatile var holdSpaceFeedRead = false
     @Volatile var usageStatus = 200
+    @Volatile var keepCallStreamOpen = false
     @Volatile var usageResponseBody: String? = null
     val postReadStarted = CountDownLatch(1)
     val releasePostRead = CountDownLatch(1)
@@ -114,7 +115,9 @@ internal class P2FixtureDispatcher : Dispatcher() {
                 val type = if (group) "group_character_event" else "character_event"
                 val raw = """{"id":1,"character_id":"rin","conversation_id":"g1","actor_type":"CHARACTER","actor_id":"rin","content":"fixture opening","event_time":"2026-10-02T10:00:00+08:00","metadata":{}}"""
                 MockResponse().setHeader("Content-Type", "text/event-stream")
-                    .setBody("id: 100\nevent: $type\ndata: $raw\n\nid: 101\nevent: reaction_status\ndata: {\"state\":\"idle\"}\n\n")
+                    .setBody("id: 100\nevent: $type\ndata: $raw\n\nid: 101\nevent: reaction_status\ndata: {\"state\":\"idle\"}\n\n" +
+                        if (keepCallStreamOpen) ": keepalive\n\n".repeat(10000) else "")
+                    .apply { if (keepCallStreamOpen) throttleBody(256, 100, TimeUnit.MILLISECONDS) }
             }
             "/v1/characters/rin/persona" -> json("""{"id":"rin","name":"Rin","description":"Fixture persona"}""")
             "/v1/space/posts" -> {

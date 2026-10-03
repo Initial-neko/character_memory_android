@@ -22,7 +22,8 @@ class LiveViewModel(
     initialConfig: ServerConfig? = null,
     preferencesName: String = "live-core-v1",
     private val mediaApiFactory: (ServerConfig) -> MediaApi = { MediaApi(it) },
-    recorderFactory: () -> VoiceRecorderPort = { AndroidVoiceRecorder() }
+    recorderFactory: () -> VoiceRecorderPort = { AndroidVoiceRecorder() },
+    private val callRecorderFactory: () -> VoiceRecorderPort = { AndroidVoiceRecorder(automaticSegment = true) }
 ) : ViewModel() {
     private val preferences = context.applicationContext.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
     private val savedConfig = runCatching {
@@ -45,7 +46,7 @@ class LiveViewModel(
     private var active = true
     val voice = VoiceCoordinator(
         scope = viewModelScope, dispatcher = Dispatchers.IO, mainDispatcher = Dispatchers.Main.immediate,
-        contextProvider = { voiceContext() },
+        contextProvider = { voiceContext().let { it.copy(isChatPage = it.isChatPage && call.state.value.phase == "idle") } },
         recorderFactory = recorderFactory,
         transcribePcm = { error("Missing bound Media client") },
         transcribeFactory = {
@@ -55,6 +56,43 @@ class LiveViewModel(
         },
         stopPlayback = { LiveAudioPlayback.stopAll() }
     )
+    val call = VoiceCallCoordinator(viewModelScope, { voiceContext() }, { createCallPort() })
+    fun requestCall(): Long? {
+        if (voice.state.value.phase !in setOf(VoiceCoordinatorPhase.IDLE, VoiceCoordinatorPhase.ERROR) ||
+            state.value.streamStatus != "已连接" || "send" in state.value.busy) return null
+        LiveAudioPlayback.stopAll()
+        return call.requestStart()
+    }
+    private fun createCallPort(): VoiceCallPort {
+        val target = requireNotNull(state.value.target)
+        val client = api
+        val media = mediaApiFactory(state.value.config)
+        return object : VoiceCallPort {
+            override fun recorder() = callRecorderFactory()
+            override suspend fun transcribe(pcm: ByteArray) = media.transcribe(Pcm16Wav.encode(pcm), source = "call").text("text")
+            override suspend fun send(text: String): String {
+                val body = jsonObject("message" to text)
+                if (!target.group) { body.addProperty("character_id", target.id); body.addProperty("conversation_id", target.conversationId) }
+                val receipt = client.post(if (target.group) "/v1/groups/${pathId(target.id)}/messages" else "/v1/chat/messages", body)
+                currentCoroutineContext().ensureActive()
+                val message = receipt.objOrNull("message")
+                check(receipt.flag("accepted") && message != null) { "服务器未返回接收凭据" }
+                update { it.copy(messages = ConversationProjection.merge(it.messages, listOf(message)),
+                    groupTurnId = if (target.group) receipt.text("turn_id") else it.groupTurnId) }
+                return if (target.group) receipt.text("turn_id") else message.text("id")
+            }
+            override suspend fun speak(item: CallEffect.Speak) {
+                val audio = client.synthesizeSpeech(item.text, voice = item.characterId)
+                val file = java.io.File(appContext.cacheDir, "call-${UUID.randomUUID()}.${if (audio.mimeType in setOf("audio/mpeg", "audio/mp3")) "mp3" else "wav"}")
+                try {
+                    withContext(Dispatchers.IO) { file.writeBytes(audio.bytes) }
+                    withTimeout(60000) { LiveAudioPlayback.playCall("call-${item.id}", file.absolutePath) }
+                } finally { file.delete() }
+            }
+            override fun stopPlayback() = LiveAudioPlayback.stopAll()
+        }
+    }
+    private val appContext = context.applicationContext
     private fun voiceContext(): VoiceContextSnapshot {
         val current = state.value
         val target = current.target
@@ -78,7 +116,12 @@ class LiveViewModel(
         LiveAudioPlayback.initialize(context)
         viewModelScope.launch {
             voice.state.collect { value ->
-                LiveAudioPlayback.blocked = value.phase !in setOf(VoiceCoordinatorPhase.IDLE, VoiceCoordinatorPhase.ERROR, VoiceCoordinatorPhase.DRAFT)
+                LiveAudioPlayback.blocked = call.state.value.phase != "idle" || value.phase !in setOf(VoiceCoordinatorPhase.IDLE, VoiceCoordinatorPhase.ERROR, VoiceCoordinatorPhase.DRAFT)
+            }
+        }
+        viewModelScope.launch {
+            call.state.collect { value ->
+                LiveAudioPlayback.blocked = value.phase != "idle" || voice.state.value.phase !in setOf(VoiceCoordinatorPhase.IDLE, VoiceCoordinatorPhase.ERROR, VoiceCoordinatorPhase.DRAFT)
             }
         }
         if (initialConfig != null) preferences.edit().putString("core", initialConfig.coreUrl).putString("media", initialConfig.mediaUrl).apply()
@@ -97,6 +140,7 @@ class LiveViewModel(
     }
 
     private fun cancelSession(reason: String? = null) {
+        call.end()
         voice.invalidate()
         LiveAudioPlayback.stopAll()
         fence.advance()
@@ -243,6 +287,7 @@ class LiveViewModel(
     fun show(page: LivePage) {
         val old = mutable.value.page
         if (old == page) return
+        call.end()
         voice.invalidate()
         LiveAudioPlayback.stopAll()
         if (page == LivePage.USAGE) usageReturnPage = old
@@ -316,7 +361,15 @@ class LiveViewModel(
                 if (!id.isNullOrBlank()) lastEventId = id
                 ConversationProjection.message(type, payload)?.let { message ->
                     update { it.copy(messages = ConversationProjection.merge(it.messages, listOf(message))) }
+                    if (message.text("role") == "assistant" && message.text("action").uppercase() in
+                        setOf("MESSAGE", "REPLY", "MINIMAL_RESPONSE", "PROACTIVE_MESSAGE", "VOICE_MESSAGE")) {
+                        call.reply(message.text("id"), if (target.group) message.text("turn_id") else message.text("source_event_id"),
+                            message.text("content"), message.text("character_id", message.text("actor_id", if (target.group) "" else target.id)))
+                    }
                 }
+                val callKey = if (target.group) payload.text("turn_id") else payload.text("watermark")
+                if (type == "reaction_complete") call.completed(callKey)
+                if (type == "reaction_error") call.reactionFailed(callKey, payload.text("message", "人物回复失败"))
                 if (type == "group_member_complete" && "send" in mutable.value.busy && mutable.value.target?.group == true) {
                     pendingMemberProgress = (pendingMemberProgress + payload).takeLast(12)
                 }
@@ -347,6 +400,7 @@ class LiveViewModel(
     }
 
     fun send(stickerId: String? = null, image: JsonObject? = null) {
+        if (call.state.value.active) { update { it.copy(error = "请先挂断通话再发送文字或图片") }; return }
         val snapshot = mutable.value
         val target = snapshot.target ?: return
         val text = snapshot.composeText.trim()

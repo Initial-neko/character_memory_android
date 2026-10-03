@@ -94,42 +94,42 @@ class VoiceMessageUiTest {
     @Test fun pendingKeepsTranscriptVisibleAndHasNoPlaybackControl() {
         render(message("pending"), "")
 
-        compose.onNodeWithTag("$tag-content").assertIsDisplayed().assertTextContains("persisted words")
-        compose.onNodeWithTag("$tag-status").assertTextContains("语音生成中")
+        compose.onNodeWithTag("$tag-content").assertIsDisplayed().assertTextContains("persisted words", substring = true)
+        compose.onNodeWithTag("$tag-status").assertTextContains("语音生成中", substring = true)
         compose.onNodeWithTag(playTag).assertDoesNotExist()
     }
 
     @Test fun readyWithAssetShowsExplicitPlayActionWithoutStartingOnComposition() {
         render(message("ready", mediaId = "asset-1"), wavFile.toURI().toString())
 
-        compose.onNodeWithTag("$tag-content").assertIsDisplayed().assertTextContains("persisted words")
-        compose.onNodeWithTag("$tag-status").assertTextContains("语音已就绪")
-        compose.onNodeWithTag(playTag).assertIsDisplayed().assertTextContains("播放语音")
-        compose.onNodeWithTag(playTag).assertTextContains("· 播放")
+        compose.onNodeWithTag("$tag-content").assertIsDisplayed().assertTextContains("persisted words", substring = true)
+        compose.onNodeWithTag("$tag-status").assertTextContains("语音已就绪", substring = true)
+        compose.onNodeWithTag(playTag).assertIsDisplayed().assertTextContains("播放语音", substring = true)
+        compose.onNodeWithTag(playTag).assertTextContains("· 播放", substring = true)
     }
 
     @Test fun readyWithoutAssetIdKeepsTranscriptAndExplainsUnavailableAudio() {
         render(message("ready"), "")
 
-        compose.onNodeWithTag("$tag-content").assertIsDisplayed().assertTextContains("persisted words")
-        compose.onNodeWithTag("$tag-status").assertTextContains("语音资源不可用")
+        compose.onNodeWithTag("$tag-content").assertIsDisplayed().assertTextContains("persisted words", substring = true)
+        compose.onNodeWithTag("$tag-status").assertTextContains("语音资源不可用", substring = true)
         compose.onNodeWithTag(playTag).assertDoesNotExist()
     }
 
     @Test fun failedVoiceKeepsTranscriptAndServerErrorVisible() {
         render(message("failed", error = "synthesis unavailable"), "")
 
-        compose.onNodeWithTag("$tag-content").assertIsDisplayed().assertTextContains("persisted words")
-        compose.onNodeWithTag("$tag-status").assertTextContains("语音生成失败")
-        compose.onNodeWithTag("$tag-error").assertIsDisplayed().assertTextContains("synthesis unavailable")
+        compose.onNodeWithTag("$tag-content").assertIsDisplayed().assertTextContains("persisted words", substring = true)
+        compose.onNodeWithTag("$tag-status").assertTextContains("语音生成失败", substring = true)
+        compose.onNodeWithTag("$tag-error").assertIsDisplayed().assertTextContains("synthesis unavailable", substring = true)
         compose.onNodeWithTag(playTag).assertDoesNotExist()
     }
 
     @Test fun unknownVoiceStateKeepsTranscriptWithoutInventingAnAudioAction() {
         render(message("processing", mediaId = "asset-1"), "")
 
-        compose.onNodeWithTag("$tag-content").assertIsDisplayed().assertTextContains("persisted words")
-        compose.onNodeWithTag("$tag-status").assertTextContains("语音状态未知")
+        compose.onNodeWithTag("$tag-content").assertIsDisplayed().assertTextContains("persisted words", substring = true)
+        compose.onNodeWithTag("$tag-status").assertTextContains("语音状态未知", substring = true)
         compose.onNodeWithTag(playTag).assertDoesNotExist()
     }
 
@@ -140,7 +140,7 @@ class VoiceMessageUiTest {
 
         compose.runOnUiThread { lifecycleOwner.registry.handleLifecycleEvent(Lifecycle.Event.ON_STOP) }
         compose.waitForIdle()
-        compose.onNodeWithTag(playTag).assertTextContains("· 播放")
+        compose.onNodeWithTag(playTag).assertTextContains("· 播放", substring = true)
 
         compose.runOnUiThread {
             lifecycleOwner.registry.handleLifecycleEvent(Lifecycle.Event.ON_START)
@@ -155,7 +155,7 @@ class VoiceMessageUiTest {
         render(message("ready", mediaId = "asset-1"), missingFile.toURI().toString())
         compose.onNodeWithTag(playTag).performClick()
         waitForPlayerLabel("点击重试")
-        compose.onNodeWithTag(playTag).assertTextContains("播放失败")
+        compose.onNodeWithTag(playTag).assertTextContains("播放失败", substring = true)
 
         compose.onNodeWithTag(playTag).performClick()
         waitForPlayerLabel("点击重试")
@@ -167,17 +167,17 @@ class VoiceMessageUiTest {
         waitForPlayerLabel("停止")
 
         render(message("ready", mediaId = "asset-1"), wavFile.toURI().toString(), "$ownerKey-next")
-        compose.onNodeWithTag(playTag).assertTextContains("· 播放")
+        compose.onNodeWithTag(playTag).assertTextContains("· 播放", substring = true)
         compose.onNodeWithTag(playTag).performClick()
         waitForPlayerLabel("停止")
     }
 
     @Test fun capturesPendingReadyFailedAndMissingIdStates() {
         renderStateGallery()
-        compose.onNodeWithTag("voice-gallery-pending-status").assertTextContains("语音生成中")
-        compose.onNodeWithTag("voice-gallery-ready-status").assertTextContains("语音已就绪")
-        compose.onNodeWithTag("voice-gallery-missing-status").assertTextContains("语音资源不可用")
-        compose.onNodeWithTag("voice-gallery-failed-status").assertTextContains("语音生成失败")
+        compose.onNodeWithTag("voice-gallery-pending-status").assertTextContains("语音生成中", substring = true)
+        compose.onNodeWithTag("voice-gallery-ready-status").assertTextContains("语音已就绪", substring = true)
+        compose.onNodeWithTag("voice-gallery-missing-status").assertTextContains("语音资源不可用", substring = true)
+        compose.onNodeWithTag("voice-gallery-failed-status").assertTextContains("语音生成失败", substring = true)
         captureScreenshot("p2-14-voice-states.png")
     }
 
@@ -186,7 +186,7 @@ class VoiceMessageUiTest {
         render(message("ready", mediaId = "asset-1"), missingFile.toURI().toString())
         compose.onNodeWithTag(playTag).performClick()
         waitForPlayerLabel("点击重试")
-        compose.onNodeWithTag(playTag).assertTextContains("播放失败")
+        compose.onNodeWithTag(playTag).assertTextContains("播放失败", substring = true)
         captureScreenshot("p2-15-voice-playback-error.png")
     }
 
@@ -267,10 +267,10 @@ class VoiceMessageUiTest {
 
     private fun waitForPlayerLabel(value: String) {
         compose.waitUntil(10_000) {
-            runCatching { compose.onNodeWithTag(playTag).assertTextContains(value) }.isSuccess
+            runCatching { compose.onNodeWithTag(playTag).assertTextContains(value, substring = true) }.isSuccess
         }
         assertTrue("Playback control should show '$value'", runCatching {
-            compose.onNodeWithTag(playTag).assertTextContains(value)
+            compose.onNodeWithTag(playTag).assertTextContains(value, substring = true)
         }.isSuccess)
     }
 
