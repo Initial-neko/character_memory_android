@@ -47,12 +47,37 @@ class BoundaryTest(unittest.TestCase):
         self.write_manifest("CAMERA")
         self.assertEqual(1, self.run_check()[0])
 
+    def test_camera_permission_requires_native_capture_and_mock_remains_isolated(self):
+        self.write_manifest("CAMERA")
+        (self.package / "camera").mkdir()
+        (self.package / "camera/CameraCapture.kt").write_text("class CameraCapture", encoding="utf-8")
+        self.assertEqual(0, self.run_check()[0])
+        (self.package / "PrototypeModels.kt").write_text("import com.charactermemory.android.camera.CameraCapture", encoding="utf-8")
+        self.assertEqual(1, self.run_check()[0])
+
     def test_shared_microphone_permission_for_live_asr_allowed(self):
         self.write_manifest("RECORD_AUDIO")
         self.assertEqual(0, self.run_check()[0])
 
     def test_microphone_access_in_offline_mock_prohibited(self):
         (self.package / "PrototypeModels.kt").write_text("import android.media.AudioRecord", encoding="utf-8")
+        self.assertEqual(1, self.run_check()[0])
+
+    def test_projection_permissions_require_unexported_typed_native_service(self):
+        self.write_manifest("FOREGROUND_SERVICE_MEDIA_PROJECTION")
+        self.assertEqual(1, self.run_check()[0])
+        (self.package / "screen").mkdir()
+        (self.package / "screen/ScreenShareService.kt").write_text("class ScreenShareService", encoding="utf-8")
+        self.manifest.write_text(self.manifest.read_text().replace(
+            '<application android:usesCleartextTraffic="false"/>',
+            '<application android:usesCleartextTraffic="false"><service android:name=".screen.ScreenShareService" '
+            'android:exported="false" android:foregroundServiceType="mediaProjection"/></application>'), encoding="utf-8")
+        self.assertEqual(0, self.run_check()[0])
+        self.manifest.write_text(self.manifest.read_text().replace('android:exported="false"', 'android:exported="true"'), encoding="utf-8")
+        self.assertEqual(1, self.run_check()[0])
+
+    def test_mock_cannot_import_native_screen_capture(self):
+        (self.package / "PrototypeModels.kt").write_text("import com.charactermemory.android.screen.ScreenShareService", encoding="utf-8")
         self.assertEqual(1, self.run_check()[0])
 
     def test_network_import_in_mock_prohibited(self):

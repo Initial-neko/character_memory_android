@@ -210,6 +210,7 @@ internal fun LiveChat(state: LiveState, model: LiveViewModel) {
         if (!imeVisible || showTools) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
             LiveIconAction(LiveSymbol.STICKER, "表情", "live-stickers-open") { showStickers = !showStickers; if (showStickers) model.loadStickers() }
             LiveIconAction(LiveSymbol.SPARKLE, "生成图片草稿", "live-image-open") { model.show(LivePage.IMAGE) }
+            LiveIconAction(LiveSymbol.TOOLS, "画面工具", "live-visual-tools", !callState.active) { showTools = !showTools }
         }
         Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Bottom) {
             if (imeVisible && !showTools) LiveIconAction(LiveSymbol.TOOLS, "展开聊天工具", "live-chat-tools") { showTools = true }
@@ -218,6 +219,10 @@ internal fun LiveChat(state: LiveState, model: LiveViewModel) {
                 modifier = Modifier.weight(1f).testTag("live-chat-input"))
             LiveIconAction(LiveSymbol.SEND, if ("send" in state.busy) "正在发送" else "发送消息", "live-chat-send",
                 !callState.active && "send" !in state.busy && state.composeText.isNotBlank()) { model.send() }
+        }
+        if (!imeVisible && showTools) {
+            com.charactermemory.android.camera.CameraControls(state, model)
+            com.charactermemory.android.screen.ScreenShareControls(state, model)
         }
         if (!imeVisible || callState.active || model.voice.state.collectAsStateWithLifecycle().value.phase != com.charactermemory.android.audio.VoiceCoordinatorPhase.IDLE)
             LiveVoiceInput(model)

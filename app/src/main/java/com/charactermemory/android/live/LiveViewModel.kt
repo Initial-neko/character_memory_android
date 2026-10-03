@@ -36,6 +36,25 @@ class LiveViewModel(
     internal var api: CoreApi = apiFactory(mutable.value.config)
         private set
     private val fence = GenerationFence()
+    internal val captureGeneration get() = fence.current
+    fun sendCameraFrame(generation: Long, jpeg: ByteArray, question: String) {
+        val target = mutable.value.target ?: return
+        if (generation != fence.current || mutable.value.page != LivePage.CHAT || call.state.value.active) return
+        val text = question.trim()
+        if (text.isEmpty() || text.length > 12_000) return
+        val frame = com.charactermemory.android.screen.ScreenVisualPayload.frame(jpeg, "CAMERA")
+        operation("visual", write = true) { client ->
+            val body = jsonObject("message" to text, "visual_frames" to listOf(frame))
+            val path = if (target.group) "/v1/visual/groups/${target.id}/messages" else {
+                body.addProperty("character_id", target.id); body.addProperty("conversation_id", target.conversationId)
+                "/v1/visual/direct/messages"
+            }
+            val result = client.post(path, body)
+            check(result.flag("accepted")) { "Core 未返回摄像帧接收凭据" }
+            update { it.copy(notice = "摄像帧已发送，等待角色回复。") }
+            loadHistory()
+        }
+    }
     private var session = SupervisorJob(viewModelScope.coroutineContext[Job])
     private var stream: Closeable? = null
     private var reconnect: Job? = null
@@ -139,7 +158,8 @@ class LiveViewModel(
         it.copy(imageCharacterId = character, imagePurpose = purpose, imageUseAvatar = avatar)
     }
 
-    private fun cancelSession(reason: String? = null) {
+    private fun cancelSession(reason: String? = null, stopCapture: Boolean = true) {
+        if (stopCapture) com.charactermemory.android.screen.ScreenShareService.stop(appContext)
         call.end()
         voice.invalidate()
         LiveAudioPlayback.stopAll()
@@ -287,6 +307,7 @@ class LiveViewModel(
     fun show(page: LivePage) {
         val old = mutable.value.page
         if (old == page) return
+        com.charactermemory.android.screen.ScreenShareService.stop(appContext)
         call.end()
         voice.invalidate()
         LiveAudioPlayback.stopAll()
@@ -450,7 +471,7 @@ class LiveViewModel(
         if (mutable.value.page == LivePage.SPACE) { loadSpace(); loadSpaceMentionCharacters() }
         if (mutable.value.page == LivePage.ENSEMBLE) resumeEnsemble()
     }
-    fun deactivate() { if (active) { active = false; spaceNotificationPoll?.cancel(); spaceNotificationPoll = null; cancelSession() } }
+    fun deactivate() { if (active) { active = false; spaceNotificationPoll?.cancel(); spaceNotificationPoll = null; cancelSession(stopCapture = false) } }
     private fun startSpaceNotificationPolling() {
         if (!active || mutable.value.config.coreUrl.isBlank() || spaceNotificationPoll?.isActive == true) return
         spaceNotificationPoll = viewModelScope.launch {

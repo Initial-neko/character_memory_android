@@ -159,9 +159,8 @@ class LiveApiUiTest {
     }
     private fun tap(tag: String, scroll: Boolean = false) {
         waitTag(tag)
-        // Compose can expose nodes while Android is still transferring window
-        // focus from the launcher/dialog. IME show requests fail in that state.
-        compose.waitUntil(10_000) { compose.activity.window.decorView.hasWindowFocus() }
+        // Compose owns the actionable node; dialogs and the IME may own window focus.
+        // Tests that require the actual IME assert its platform insets separately.
         val node = compose.onNodeWithTag(tag)
         if (scroll) node.performScrollTo()
         node.performClick()
