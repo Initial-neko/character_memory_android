@@ -5,6 +5,7 @@ import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.content.Context
+import com.charactermemory.android.audio.*
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -44,8 +45,18 @@ internal object LiveAudioPlayback {
     var blocked by mutableStateOf(false)
     private var audioManager: AudioManager? = null
     private var focus: AudioFocusRequest? = null
+    private val speechRequests = AudioRequestFence()
+    fun reserveSpeech(owner: String, cancel: () -> Unit): AudioRequestTicket {
+        stopAll()
+        return speechRequests.begin(owner, cancel)
+    }
+    fun claimSpeech(ticket: AudioRequestTicket, url: String): Boolean {
+        if (blocked || !speechRequests.consume(ticket)) return false
+        toggle(ticket.owner, url)
+        return true
+    }
     fun initialize(context: Context) { audioManager = context.applicationContext.getSystemService(AudioManager::class.java) }
-    fun stopAll() { releasePlayer(); state.value = UiState(null, "播放") }
+    fun stopAll() { speechRequests.cancelAll(); releasePlayer(); state.value = UiState(null, "播放") }
     private data class UiState(val owner: String?, val status: String)
     private val state = mutableStateOf(UiState(null, "播放"))
     private var activeOwner: String? = null
@@ -59,6 +70,7 @@ internal object LiveAudioPlayback {
 
     fun toggle(owner: String, url: String) {
         if (blocked) return
+        speechRequests.cancelAll()
         if (activeOwner == owner && activePlayer != null) {
             stop(owner)
             return
@@ -69,7 +81,7 @@ internal object LiveAudioPlayback {
         lateinit var request: AudioFocusRequest
         request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
             .setAudioAttributes(attributes).setOnAudioFocusChangeListener { change ->
-                if (focus === request && change <= AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) stopAll()
+                if (focus === request && shouldStopForAudioFocus(change)) stopAll()
             }.build()
         if (audioManager?.requestAudioFocus(request) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
             state.value = UiState(owner, "音频被占用，点击重试")
@@ -99,6 +111,7 @@ internal object LiveAudioPlayback {
     }
 
     fun stop(owner: String) {
+        speechRequests.cancelOwner(owner)
         if (activeOwner == owner && activePlayer != null) {
             releasePlayer()
             state.value = UiState(owner, "播放")

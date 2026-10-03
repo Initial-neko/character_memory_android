@@ -24,6 +24,19 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 class VoiceCoordinatorTest {
+    @Test fun transcriptionClientIsFrozenWhenRequestStarts() {
+        var destination = "old-media"
+        val harness = Harness(transcriberFactory = { val frozen = destination; { _: ByteArray -> frozen } })
+        try {
+            val ticket = requireNotNull(harness.coordinator.requestStart())
+            destination = "new-media"
+            assertTrue(harness.coordinator.onPermissionResult(ticket, true))
+            runBlocking { withTimeout(2_000L) { harness.recorder.captureStarted.await() } }
+            harness.coordinator.stop(ticket)
+            runBlocking { withTimeout(2_000L) { harness.coordinator.state.first { it.phase == VoiceCoordinatorPhase.DRAFT } } }
+            assertEquals("old-media", harness.coordinator.state.value.draft)
+        } finally { harness.close() }
+    }
     @Test
     fun startRequiresForegroundChatAndCompleteTarget() {
         val inactive = listOf(
@@ -482,6 +495,7 @@ class VoiceCoordinatorTest {
         @Volatile var context: VoiceContextSnapshot = activeContext(),
         transcript: String = "recognized",
         transcriber: (suspend (ByteArray) -> String)? = null,
+        transcriberFactory: (() -> (suspend (ByteArray) -> String))? = null,
         watchdogDelay: suspend (Long) -> Unit = { CompletableDeferred<Unit>().await() },
         private val dispatcher: CoroutineDispatcher = Dispatchers.Unconfined,
         private val mainDispatcher: CoroutineDispatcher = Dispatchers.Unconfined,
@@ -525,7 +539,8 @@ class VoiceCoordinatorTest {
                 allowPlayerStopReturn?.await(5, TimeUnit.SECONDS)
                 events += "player-stop-complete"
             },
-            watchdogDelay = watchdogDelay
+            watchdogDelay = watchdogDelay,
+            transcribeFactory = transcriberFactory
         )
 
         override fun close() {

@@ -201,13 +201,15 @@ class AudioRecordRecorder internal constructor(
             if (minimumBufferBytes <= 0) return null
 
             val bufferBytes = maxOf(minimumBufferBytes, READ_BUFFER_SAMPLES * BYTES_PER_SAMPLE)
-            val record = AudioRecord(
+            val record = try { AudioRecord(
                 MediaRecorder.AudioSource.MIC,
                 SAMPLE_RATE_HZ,
                 AudioFormat.CHANNEL_IN_MONO,
                 AudioFormat.ENCODING_PCM_16BIT,
                 bufferBytes
-            )
+            ) } catch (denied: SecurityException) {
+                throw SecurityException("Microphone permission is unavailable or was revoked", denied)
+            }
             return AndroidAudioInput(record)
         }
     }

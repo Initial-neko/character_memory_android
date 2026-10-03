@@ -47,7 +47,12 @@ class LiveViewModel(
         scope = viewModelScope, dispatcher = Dispatchers.IO, mainDispatcher = Dispatchers.Main.immediate,
         contextProvider = { voiceContext() },
         recorderFactory = recorderFactory,
-        transcribePcm = { pcm -> mediaApiFactory(state.value.config).transcribe(Pcm16Wav.encode(pcm)).text("text") },
+        transcribePcm = { error("Missing bound Media client") },
+        transcribeFactory = {
+            val client = mediaApiFactory(state.value.config)
+            val transcribe: suspend (ByteArray) -> String = { pcm -> client.transcribe(Pcm16Wav.encode(pcm)).text("text") }
+            transcribe
+        },
         stopPlayback = { LiveAudioPlayback.stopAll() }
     )
     private fun voiceContext(): VoiceContextSnapshot {

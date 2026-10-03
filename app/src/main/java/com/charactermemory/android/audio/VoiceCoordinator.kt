@@ -92,7 +92,8 @@ class VoiceCoordinator(
     private val transcribePcm: suspend (ByteArray) -> String,
     private val stopPlayback: () -> Unit,
     private val cancelDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    private val watchdogDelay: suspend (Long) -> Unit = { delay(it) }
+    private val watchdogDelay: suspend (Long) -> Unit = { delay(it) },
+    private val transcribeFactory: (() -> (suspend (ByteArray) -> String))? = null
 ) {
     private val lock = Any()
     private val mutableState = MutableStateFlow(VoiceCoordinatorState())
@@ -118,7 +119,7 @@ class VoiceCoordinator(
 
             nextTaskGeneration += 1L
             val ticket = currentContext.toTicket(nextTaskGeneration)
-            activeTask = TaskSession(ticket)
+            activeTask = TaskSession(ticket, transcribeFactory?.invoke() ?: transcribePcm)
             mutableState.value = VoiceCoordinatorState(
                 phase = VoiceCoordinatorPhase.WAITING_PERMISSION,
                 ticket = ticket
@@ -336,7 +337,7 @@ class VoiceCoordinator(
                 )
             ) return
 
-            val transcript = transcribePcm(pcm)
+            val transcript = session.transcribe(pcm)
             currentCoroutineContext().ensureActive()
             if (transcript.isBlank()) throw IllegalStateException("识别结果为空")
             publishDraft(session, transcript)
@@ -584,7 +585,7 @@ class VoiceCoordinator(
         taskGeneration = taskGeneration
     )
 
-    private class TaskSession(val ticket: VoiceTaskTicket) {
+    private class TaskSession(val ticket: VoiceTaskTicket, val transcribe: suspend (ByteArray) -> String) {
         var recorder: VoiceRecorderPort? = null
         var taskJob: Job? = null
         var stopJob: Job? = null

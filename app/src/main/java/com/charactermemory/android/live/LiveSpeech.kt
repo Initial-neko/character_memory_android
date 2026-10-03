@@ -34,6 +34,7 @@ internal fun LiveSpeechButton(text: String, owner: String, model: LiveViewModel,
         cached?.let { LiveAudioPlayback.toggle(owner, it.absolutePath); return@TextButton }
         error = null
         val ticket = ++generation
+        val playbackTicket = LiveAudioPlayback.reserveSpeech(owner) { job?.cancel() }
         val client = model.api
         job = scope.launch {
             var file: File? = null
@@ -45,9 +46,10 @@ internal fun LiveSpeechButton(text: String, owner: String, model: LiveViewModel,
                 withContext(Dispatchers.IO) { created.writeBytes(audio.bytes) }
                 ensureActive()
                 if (ticket != generation || LiveAudioPlayback.blocked) return@launch
-                cached = file
-                file = null
-                LiveAudioPlayback.toggle(owner, requireNotNull(cached).absolutePath)
+                if (LiveAudioPlayback.claimSpeech(playbackTicket, requireNotNull(file).absolutePath)) {
+                    cached = file
+                    file = null
+                }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { if (ticket == generation) error = "朗读失败，点击重试" }
             finally { file?.delete(); if (ticket == generation) job = null }
