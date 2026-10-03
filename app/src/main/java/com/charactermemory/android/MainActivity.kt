@@ -13,13 +13,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -158,7 +163,9 @@ fun CharacterMemoryPrototype(model: PrototypeViewModel = viewModel()) {
 @Composable
 internal fun Header(title: String, isRoot: Boolean, back: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().background(Navy).height(62.dp).padding(horizontal = 17.dp),
+        Modifier.fillMaxWidth().background(Navy)
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+            .height(62.dp).padding(horizontal = 17.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (!isRoot) {
@@ -167,9 +174,11 @@ internal fun Header(title: String, isRoot: Boolean, back: () -> Unit) {
             }
         }
         Text(title, color = Pale, fontSize = if (isRoot) 22.sp else 20.sp, fontWeight = FontWeight.Bold,
-            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f).testTag("prototype-header-title"))
         Text("MOCK", color = Cyan, fontSize = 10.sp, fontWeight = FontWeight.Bold,
-            modifier = Modifier.background(BluePanel, RoundedCornerShape(7.dp)).padding(7.dp))
+            modifier = Modifier.testTag("prototype-header-mock")
+                .background(BluePanel, RoundedCornerShape(7.dp)).padding(7.dp))
     }
 }
 

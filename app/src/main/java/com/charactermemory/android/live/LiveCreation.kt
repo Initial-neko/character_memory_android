@@ -9,6 +9,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.charactermemory.android.data.*
@@ -129,8 +131,14 @@ internal fun LiveImage(state: LiveState, model: LiveViewModel) {
                 val bytes = remember(draft.text("data_url")) {
                     runCatching { Base64.decode(draft.text("data_url").substringAfter(','), Base64.DEFAULT) }.getOrNull()
                 }
-                if (bytes != null) AsyncImage(bytes, "生成图片草稿", modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp, max = 320.dp))
-                LiveAction("确认发送到当前聊天", "live-image-confirm-send", "send" !in state.busy) { model.sendImageDraft() }
+                var previewStatus by remember(draft.text("data_url")) { mutableStateOf("加载中") }
+                if (bytes != null) AsyncImage(bytes, "生成图片草稿",
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp, max = 320.dp).testTag("live-image-preview")
+                        .semantics { stateDescription = previewStatus },
+                    onSuccess = { previewStatus = "已加载" }, onError = { previewStatus = "加载失败" })
+                else Text("图片草稿无法预览", color = LiveMuted, modifier = Modifier.fillMaxWidth().testTag("live-image-preview-error"))
+                if (previewStatus == "加载失败") Text("图片预览加载失败", color = LiveMuted, modifier = Modifier.testTag("live-image-preview-error"))
+                LiveAction("确认发送到当前聊天", "live-image-confirm-send", "send" !in state.busy && previewStatus == "已加载") { model.sendImageDraft() }
                 OutlinedButton(onClick = model::discardImage, enabled = "send" !in state.busy, modifier = Modifier.testTag("live-image-discard")) { Text("放弃草稿") }
             }
         }

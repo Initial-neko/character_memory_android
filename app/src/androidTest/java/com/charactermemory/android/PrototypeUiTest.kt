@@ -19,7 +19,6 @@ import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
-import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.uiautomator.UiDevice
 import androidx.test.platform.app.InstrumentationRegistry
@@ -48,6 +47,43 @@ class PrototypeUiTest {
         }
     )
 
+    private fun assertPrototypeHeaderClearsSystemBars() {
+        val decor = compose.activity.window.decorView
+        val insets = requireNotNull(ViewCompat.getRootWindowInsets(decor)) {
+            "System insets unavailable for prototype header geometry"
+        }
+        val safeTop = insets.getInsets(
+            WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()
+        ).top
+        listOf("prototype-header-title", "prototype-header-mock").forEach { tag ->
+            val bounds = compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInWindow
+            assertTrue(
+                "$tag overlaps system status/cutout area: top=${bounds.top}, safeTop=$safeTop",
+                bounds.top >= safeTop - 1f
+            )
+        }
+    }
+
+    private fun dismissIme() {
+        // Espresso may wait for a root that is not focused while IME owns the window.
+        compose.runOnUiThread {
+            val service = compose.activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                as android.view.inputmethod.InputMethodManager
+            service.hideSoftInputFromWindow(compose.activity.window.decorView.windowToken, 0)
+        }
+        compose.waitForIdle()
+    }
+
+    private fun awaitCompactWindow() {
+        // wm size triggers Activity recreation. Semantics from the previous
+        // window must not receive taps before the compact window owns focus.
+        compose.waitUntil(10_000) {
+            val decor = compose.activity.window.decorView
+            decor.width == 720 && decor.hasWindowFocus() &&
+                compose.onAllNodes(hasTestTag("character-rin")).fetchSemanticsNodes().size == 1
+        }
+    }
+
     private fun screenshot(name: String, expectedTag: String) {
         // Asserting the Compose semantics tree is not sufficient to synchronize
         // Android SurfaceFlinger frame presentation. Verify the intended route,
@@ -57,6 +93,9 @@ class PrototypeUiTest {
         compose.waitForIdle()
         InstrumentationRegistry.getInstrumentation().waitForIdleSync()
         SystemClock.sleep(450)
+        // Apply the same geometry gate to portrait, narrow, landscape and IME
+        // captures; navigation existence alone missed the status-bar overlap.
+        assertPrototypeHeaderClearsSystemBars()
         // The image draft is an Android Dialog: activity + dialog are separate
         // Compose semantics roots. Capture the DEVICE display, not onRoot(),
         // so overlays, permission UI and the soft keyboard are visible too.
@@ -97,15 +136,18 @@ class PrototypeUiTest {
         compose.onNodeWithTag("screen-character").assertExists()
         compose.onNodeWithTag("character-description").performTextInput("喜欢摄影、旅行和咖啡的朋友")
         compose.onNodeWithTag("character-preview").assertIsEnabled().performClick()
+        compose.waitUntil(5_000) {
+            compose.onAllNodes(hasTestTag("character-preview-card")).fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithTag("character-preview-card").assertExists()
-        Espresso.closeSoftKeyboard()
+        dismissIme()
         screenshot("03-character-create", "screen-character")
 
         compose.onNodeWithTag("nav-back").performClick()
         compose.onNodeWithTag("home-create-group").performClick()
         compose.onNodeWithTag("group-description").performTextInput("喜欢二次元、技术和旅行的朋友小队")
         compose.onNodeWithTag("group-preview").assertIsEnabled().performClick()
-        Espresso.closeSoftKeyboard()
+        dismissIme()
         screenshot("04-group-create", "screen-group")
 
         compose.onNodeWithTag("nav-back").performClick()
@@ -115,7 +157,7 @@ class PrototypeUiTest {
         compose.onNodeWithTag("chat-image-preview").performClick()
         compose.onNodeWithTag("image-preview-dialog").assertExists()
         compose.onNodeWithTag("image-prompt").performTextInput("两个人一起喝咖啡的温暖画面")
-        Espresso.closeSoftKeyboard()
+        dismissIme()
         screenshot("08-imagegen-draft", "image-preview-dialog")
         compose.onNodeWithTag("image-preview-close").performClick()
         compose.onNodeWithTag("chat-open-call").performClick()
@@ -139,7 +181,7 @@ class PrototypeUiTest {
         compose.onNodeWithTag("screen-group-chat").assertExists()
         compose.onNodeWithTag("group-chat-input").performTextInput("本地群聊消息")
         compose.onNodeWithTag("group-chat-send").assertIsEnabled().performClick()
-        Espresso.closeSoftKeyboard()
+        dismissIme()
         screenshot("09-group-chat", "screen-group-chat")
     }
 
@@ -152,6 +194,7 @@ class PrototypeUiTest {
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         try {
             device.executeShellCommand("wm size 720x1280")
+            awaitCompactWindow()
             compose.onNodeWithTag("character-rin").performClick()
             compose.onNodeWithTag("chat-open-call").performClick()
             // Regression: the local camera overlay must not cover the
@@ -196,12 +239,25 @@ class PrototypeUiTest {
             // was shown; force it and assert Android's actual IME inset.
             device.executeShellCommand("settings put secure show_ime_with_hard_keyboard 1")
             device.executeShellCommand("wm size 720x1280")
+            awaitCompactWindow()
             compose.onNodeWithTag("character-rin").performClick()
             compose.onNodeWithTag("chat-input").performClick()
             compose.onNodeWithTag("chat-input").performTextInput("输入法展开时聊天输入框仍应可用")
             compose.waitUntil(timeoutMillis = 10_000L) {
                 ViewCompat.getRootWindowInsets(compose.activity.window.decorView)
                     ?.isVisible(WindowInsetsCompat.Type.ime()) == true
+            }
+            // OS visibility is dispatched before Compose applies the animated
+            // inset to layout. Await the measured layout, not just OS visibility;
+            // a genuinely covered composer still fails this bounded wait.
+            compose.waitUntil(timeoutMillis = 10_000L) {
+                val decor = compose.activity.window.decorView
+                val bottom = ViewCompat.getRootWindowInsets(decor)
+                    ?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
+                val keyboardTop = decor.height - bottom
+                bottom > 0 && listOf("chat-input", "chat-send").all { tag ->
+                    compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInWindow.bottom <= keyboardTop + 8f
+                }
             }
             compose.onNodeWithTag("chat-send").assertIsDisplayed()
             val decor = compose.activity.window.decorView
@@ -223,7 +279,7 @@ class PrototypeUiTest {
             )
             screenshot("12-chat-ime", "screen-chat")
         } finally {
-            Espresso.closeSoftKeyboard()
+            dismissIme()
             device.executeShellCommand("wm size reset")
             if (originalKeyboardSetting == "0" || originalKeyboardSetting == "1") {
                 device.executeShellCommand(

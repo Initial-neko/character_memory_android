@@ -12,14 +12,24 @@ android {
         applicationId = "com.charactermemory.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.2.1-p2"
+        versionCode = 5
+        versionName = "0.2.3-p2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+        }
+    }
+
+    // CI provides an explicit path: never depend on a runner's default debug key.
+    System.getenv("ANDROID_ACCEPTANCE_KEYSTORE_PATH")?.let { path ->
+        signingConfigs.getByName("debug") {
+            storeFile = file(path)
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
         }
     }
 

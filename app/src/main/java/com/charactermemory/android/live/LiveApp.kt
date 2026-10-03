@@ -2,6 +2,7 @@ package com.charactermemory.android.live
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -11,22 +12,21 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.charactermemory.android.data.*
-
-internal val LiveNavy = Color(0xFF091120)
-internal val LivePanel = Color(0xFF151F31)
-internal val LiveAccent = Color(0xFF79A9FF)
-internal val LiveMuted = Color(0xFF9BAFCB)
 
 @Composable
 fun LiveApp(model: LiveViewModel = viewModel(factory = LiveViewModel.factory(LocalContext.current))) {
@@ -46,38 +46,46 @@ fun LiveApp(model: LiveViewModel = viewModel(factory = LiveViewModel.factory(Loc
     }
     val roots = setOf(LivePage.HOME, LivePage.SPACE, LivePage.SETTINGS)
     BackHandler(state.page !in roots) { model.back() }
-    MaterialTheme(colorScheme = darkColorScheme(primary = LiveAccent, background = LiveNavy,
-        surface = LivePanel, onSurface = Color(0xFFEAF1FF), onPrimary = LiveNavy)) {
+    MaterialTheme(colorScheme = darkColorScheme(primary = LiveAccent, secondary = LivePurple, background = LiveNavy,
+        surface = LivePanel, onSurface = LivePale, onPrimary = LiveNavy)) {
         Scaffold(containerColor = LiveNavy, contentWindowInsets = WindowInsets.safeDrawing,
             topBar = {
                 Row(Modifier.fillMaxWidth().background(LiveNavy).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
-                    .padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (state.page !in roots) TextButton(onClick = model::back, modifier = Modifier.testTag("live-back")) { Text("返回") }
+                    .heightIn(min = 62.dp).padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (state.page !in roots) LiveIconAction(LiveSymbol.BACK, "返回", "live-back", onClick = model::back)
+                    if (state.page == LivePage.CHAT && state.target?.group == false) {
+                        val target = requireNotNull(state.target)
+                        LiveAvatar(target.name, state.avatars[target.id].orEmpty(), model, 32.dp)
+                    }
                     Text(when (state.page) {
                         LivePage.HOME -> "Character Memory"
                         LivePage.CHAT -> state.target?.name ?: "聊天"
                         LivePage.SETTINGS -> "连接设置"
                         LivePage.CHARACTER -> "创建人物"
                         LivePage.ENSEMBLE -> "创建群聊"
-                        LivePage.SPACE -> "Space"
+                        LivePage.SPACE -> "空间"
                         LivePage.IMAGE -> "图片草稿"
                         LivePage.DETAILS -> "人物详情"
-                    }, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    }, color = LivePale, fontSize = if (state.page in roots) 22.sp else 20.sp,
+                        fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    if (state.page == LivePage.HOME) LiveIconAction(LiveSymbol.REFRESH, "刷新会话列表", "live-refresh",
+                        "roster" !in state.busy, model::refresh)
                 }
             }, bottomBar = {
-                if (state.page in roots) NavigationBar(containerColor = LivePanel) {
+                if (state.page in roots) NavigationBar(containerColor = Color(0xFF111B2C)) {
                     listOf(LivePage.HOME to "聊天", LivePage.SPACE to "空间", LivePage.SETTINGS to "设置").forEach { (page, label) ->
                         NavigationBarItem(selected = state.page == page, onClick = { model.show(page) },
-                            icon = { Text(if (page == LivePage.HOME) "◉" else if (page == LivePage.SPACE) "◎" else "⚙") },
+                            icon = { LiveGlyph(if (page == LivePage.HOME) LiveSymbol.CHAT else if (page == LivePage.SPACE) LiveSymbol.SPACE else LiveSymbol.SETTINGS,
+                                tint = if (state.page == page) LiveAccent else LiveMuted) },
                             label = { Text(label) }, modifier = Modifier.testTag("live-tab-${page.name.lowercase()}"))
                     }
                 }
             }) { inner ->
-            Column(Modifier.fillMaxSize().padding(inner).consumeWindowInsets(inner).imePadding()) {
-                state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.fillMaxWidth()
-                    .testTag("live-error").padding(horizontal = 16.dp, vertical = 8.dp)) }
-                state.notice?.let { Text(it, color = LiveAccent, style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.fillMaxWidth().testTag("live-notice").padding(horizontal = 16.dp, vertical = 4.dp)) }
+            Column(Modifier.fillMaxSize().padding(inner).consumeWindowInsets(inner).imePadding()
+                .background(Brush.verticalGradient(listOf(LiveNavy, Color(0xFF0C1428), LiveNavy)))) {
+                state.error?.let { LiveFeedback(it, "live-error", true) }
+                state.notice?.let { LiveFeedback(it, "live-notice") }
                 Box(Modifier.weight(1f)) {
                     when (state.page) {
                         LivePage.HOME -> LiveHome(state, model)
@@ -126,36 +134,44 @@ internal fun LiveHome(state: LiveState, model: LiveViewModel) {
     LazyColumn(Modifier.fillMaxSize().testTag("live-home"), contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                LiveAction("创建人物", "live-create-character") { model.show(LivePage.CHARACTER) }
-                LiveAction("创建群聊", "live-create-group") { model.show(LivePage.ENSEMBLE) }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LiveQuickAction(LiveSymbol.PERSON, "生成人物", Modifier.weight(1f), "live-create-character") { model.show(LivePage.CHARACTER) }
+                LiveQuickAction(LiveSymbol.GROUP, "生成群聊", Modifier.weight(1f), "live-create-group") { model.show(LivePage.ENSEMBLE) }
+                LiveQuickAction(LiveSymbol.SPACE, "空间", Modifier.weight(1f), "live-home-space") { model.show(LivePage.SPACE) }
             }
-            TextButton(onClick = model::refresh, modifier = Modifier.testTag("live-refresh")) { Text(if ("roster" in state.busy) "加载中…" else "刷新") }
+            LiveSection("全部对话", "人物与最近消息")
+            if ("roster" in state.busy) Text("加载中…", color = LiveMuted)
             if (state.characters.isEmpty() && "roster" !in state.busy) Text("暂无人物，请连接 Core 或创建人物。", color = LiveMuted)
         }
         items(state.characters, key = { it.text("id") }) { character ->
             val id = character.text("id")
-            Card(onClick = { model.openCharacter(id) }, modifier = Modifier.fillMaxWidth().testTag("live-character-$id"),
-                colors = CardDefaults.cardColors(containerColor = LivePanel)) {
-                Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            LivePanelCard(Modifier.fillMaxWidth().clickable { model.openCharacter(id) }.testTag("live-character-$id")) {
+                Row(Modifier.fillMaxWidth().padding(13.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     LiveAvatar(character.text("name", id), state.avatars[id].orEmpty(), model)
                     Column(Modifier.weight(1f)) {
-                        Text(character.text("name", id), style = MaterialTheme.typography.titleMedium)
-                        Text(character.text("identity", id), color = LiveMuted, style = MaterialTheme.typography.bodySmall)
+                        Text(character.text("name", id), color = LivePale, fontSize = 17.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Spacer(Modifier.height(4.dp))
                         val latest = state.summaries[id]?.objOrNull("latest_message")
-                        Text(latest?.text("preview", latest.text("content")) ?: "暂无消息", color = LiveMuted)
+                        Text(latest?.text("preview", latest.text("content")) ?: character.text("identity", "暂无消息"),
+                            color = LiveMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
+                    val time = LiveTime.short(state.summaries[id]?.objOrNull("latest_message")?.text("event_time").orEmpty())
+                    if (time.isNotEmpty()) Text(time, color = LiveMuted, fontSize = 10.sp, maxLines = 1, modifier = Modifier.testTag("live-character-time-$id"))
                 }
             }
         }
-        item { Text("群聊", style = MaterialTheme.typography.titleMedium) }
+        item { LiveSection("群聊", "一起聊天的空间") }
         items(state.groups, key = { it.text("id") }) { group ->
             val id = group.text("id")
-            Card(onClick = { model.openGroup(id) }, modifier = Modifier.fillMaxWidth().testTag("live-group-$id"),
-                colors = CardDefaults.cardColors(containerColor = LivePanel)) {
-                Column(Modifier.padding(14.dp)) {
-                    Text(group.text("name", id), style = MaterialTheme.typography.titleMedium)
-                    Text(group.items("members").joinToString(" · ") { it.text("name", it.text("id")) }, color = LiveMuted)
+            LivePanelCard(Modifier.fillMaxWidth().clickable { model.openGroup(id) }.testTag("live-group-$id")) {
+                Row(Modifier.fillMaxWidth().padding(13.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    LiveAvatar("群", "", model)
+                    Column(Modifier.weight(1f)) {
+                        Text(group.text("name", id), color = LivePale, fontSize = 17.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Spacer(Modifier.height(4.dp))
+                        Text(group.items("members").joinToString(" · ") { it.text("name", it.text("id")) },
+                            color = LiveMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                 }
             }
         }
