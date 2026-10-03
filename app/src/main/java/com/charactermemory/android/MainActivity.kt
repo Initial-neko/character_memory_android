@@ -81,6 +81,8 @@ internal val Cyan = Color(0xFF76D4E9)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        coil.Coil.setImageLoader(coil.ImageLoader.Builder(this)
+            .components { add(coil.decode.SvgDecoder.Factory()) }.build())
         val provisioned = if (BuildConfig.DEBUG && !intent.getBooleanExtra("p1_mock", false)) {
             intent.getStringExtra("initial_core_url")?.let { core ->
                 runCatching { ServerConfig.normalize(core, intent.getStringExtra("initial_media_url") ?: "") }.getOrNull()

@@ -14,6 +14,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /** Synthetic payloads mirror Core508c6f0 route schemas, not private user data. */
 internal class P2FixtureDispatcher : Dispatcher() {
+    @Volatile var brokenSticker = false
     val writes = CopyOnWriteArrayList<Pair<String, JsonObject>>()
     val reads = CopyOnWriteArrayList<String>()
     val requests = CopyOnWriteArrayList<String>()
@@ -49,6 +50,7 @@ internal class P2FixtureDispatcher : Dispatcher() {
             val body = JsonParser.parseString(request.body.readUtf8()).asJsonObject
             writes.add(path to body)
             return when {
+                path == "/v1/visual/direct/messages" || path == "/v1/visual/groups/g1/messages" -> json("""{"accepted":true,"event_id":11}""", 202)
                 path == "/v1/space/notifications/7/read" -> {
                     if (notificationReadStatus != 200) json("""{"detail":"提醒标记失败"}""", notificationReadStatus)
                     else {
@@ -97,7 +99,9 @@ internal class P2FixtureDispatcher : Dispatcher() {
             "/v1/characters/summaries" -> json("""{"characters":[{"id":"rin","latest_message":{"id":1,"role":"assistant","content":"fixture opening","preview":"fixture opening","event_time":"2026-10-02T10:00:00+08:00"},"latest_assistant_message_id":1}]}""")
             "/v1/groups" -> json("""{"groups":[{"id":"g1","name":"Fixture Group","status":"ACTIVE","member_ids":["rin","lex"],"members":[{"id":"rin","name":"Rin"},{"id":"lex","name":"Lex"}]}]}""")
             "/v1/stickers" -> json("""{"scope":"global","source":"fixture","stickers":[{"id":"wave","label":"挥手","pack_id":"default","pack_name":"内置","url":"/v1/stickers/wave/asset"},{"id":"sparkle","label":"星光","pack_id":"custom","pack_name":"自定义","url":"/v1/stickers/sparkle/asset"}]}""")
-            "/v1/stickers/wave/asset", "/v1/stickers/sparkle/asset" -> MockResponse()
+            "/v1/stickers/sparkle/asset" -> MockResponse().setHeader("Content-Type", "image/svg+xml")
+                .setBody("""<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160"><circle cx="80" cy="80" r="64" fill="#ffc7cb"/><path d="M40 80 Q80 130 120 80" fill="none" stroke="#5b4b47" stroke-width="6"/></svg>""")
+            "/v1/stickers/wave/asset" -> if (brokenSticker) MockResponse().setHeader("Content-Type", "image/png").setBody("invalid PNG") else MockResponse()
                 .setHeader("Content-Type", "image/png")
                 .setBody(Buffer().write(android.util.Base64.decode(
                     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZUAAAAASUVORK5CYII=",

@@ -36,7 +36,7 @@ fun ScreenShareControls(state: LiveState, model: LiveViewModel) {
         val selected = model.state.value.target
         if (expected != null && result.resultCode == Activity.RESULT_OK && result.data != null &&
             model.state.value.page == LivePage.CHAT && selected?.group == false &&
-            expected == Triple(model.captureGeneration, model.state.value.config.coreUrl, selected.id + ":" + selected.conversationId)) {
+            expected == Triple(model.screenCaptureGeneration, model.state.value.config.coreUrl, selected.id + ":" + selected.conversationId)) {
             runCatching {
                 ScreenShareService.start(context, result.resultCode, result.data!!,
                     model.state.value.config.coreUrl, selected.id, selected.conversationId)
@@ -58,7 +58,7 @@ fun ScreenShareControls(state: LiveState, model: LiveViewModel) {
                 if (capture.active) {
                     model.update { it.copy(error = "请先结束当前人物的共享，再切换目标。") }
                 } else {
-                    requested = Triple(model.captureGeneration, state.config.coreUrl, target.id + ":" + target.conversationId)
+                    requested = Triple(model.screenCaptureGeneration, state.config.coreUrl, target.id + ":" + target.conversationId)
                     val manager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
                     launcher.launch(manager.createScreenCaptureIntent())
                 }

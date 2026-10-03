@@ -37,6 +37,8 @@ class LiveViewModel(
         private set
     private val fence = GenerationFence()
     internal val captureGeneration get() = fence.current
+    private var screenEpoch = 0L
+    internal val screenCaptureGeneration get() = screenEpoch
     fun sendCameraFrame(generation: Long, jpeg: ByteArray, question: String) {
         val target = mutable.value.target ?: return
         if (generation != fence.current || mutable.value.page != LivePage.CHAT || call.state.value.active) return
@@ -159,7 +161,7 @@ class LiveViewModel(
     }
 
     private fun cancelSession(reason: String? = null, stopCapture: Boolean = true) {
-        if (stopCapture) com.charactermemory.android.screen.ScreenShareService.stop(appContext)
+        if (stopCapture) { screenEpoch++; com.charactermemory.android.screen.ScreenShareService.stop(appContext) }
         call.end()
         voice.invalidate()
         LiveAudioPlayback.stopAll()
@@ -307,6 +309,7 @@ class LiveViewModel(
     fun show(page: LivePage) {
         val old = mutable.value.page
         if (old == page) return
+        screenEpoch++
         com.charactermemory.android.screen.ScreenShareService.stop(appContext)
         call.end()
         voice.invalidate()

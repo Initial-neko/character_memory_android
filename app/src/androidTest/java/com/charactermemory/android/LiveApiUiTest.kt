@@ -88,7 +88,8 @@ class LiveApiUiTest {
         val clientTls = HandshakeCertificates.Builder().addTrustedCertificate(certificate.certificate).build()
         client = OkHttpClient.Builder().sslSocketFactory(clientTls.sslSocketFactory(), clientTls.trustManager).build()
         // Only the synthetic server certificate is trusted; production TLS remains unchanged.
-        coil.Coil.setImageLoader(coil.ImageLoader.Builder(compose.activity).okHttpClient(client).build())
+        coil.Coil.setImageLoader(coil.ImageLoader.Builder(compose.activity).okHttpClient(client)
+            .components { add(coil.decode.SvgDecoder.Factory()) }.build())
         core = MockWebServer().apply { useHttps(serverTls.sslSocketFactory(), false) }
         media = MockWebServer().apply { useHttps(serverTls.sslSocketFactory(), false) }
         dispatcher = P2FixtureDispatcher()
@@ -453,6 +454,43 @@ class LiveApiUiTest {
         assertFalse(dispatcher.writes.any { it.first == "/v1/chat/messages" })
     }
 
+    @Test fun brokenStickerCannotSendAndDefaultSvgRenders() {
+        dispatcher.brokenSticker = true
+        tap("live-character-rin")
+        tap("live-stickers-open")
+        waitTag("live-sticker-send-wave")
+        compose.waitUntil(10_000) { compose.onAllNodes(hasTestTag("live-sticker-error-wave")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("live-sticker-send-wave").assertIsNotEnabled()
+        assertFalse(dispatcher.writes.any { it.first == "/v1/chat/messages" })
+        tap("live-sticker-pack-custom")
+        compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("live-sticker-send-sparkle").assertIsEnabled() }.isSuccess }
+        compose.onNodeWithTag("live-sticker-send-sparkle").assertIsDisplayed()
+    }
+
+    @Test fun cameraFramesUseRealVisualRoutesAndStaleTargetCannotSend() {
+        tap("live-character-rin")
+        val jpeg = java.io.ByteArrayOutputStream().also { stream ->
+            Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888).let { bitmap ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 80, stream); bitmap.recycle()
+            }
+        }.toByteArray()
+        val stale = model.captureGeneration
+        compose.runOnUiThread { model.sendCameraFrame(stale, jpeg, "fixture camera question") }
+        compose.waitUntil(10_000) { dispatcher.writes.any { it.first == "/v1/visual/direct/messages" } }
+        val direct = dispatcher.writes.single { it.first == "/v1/visual/direct/messages" }.second
+        assertEquals("rin", direct.text("character_id"))
+        assertEquals("CAMERA", direct.getAsJsonArray("visual_frames")[0].asJsonObject.text("source"))
+        compose.waitUntil(10_000) { "visual" !in model.state.value.busy }
+        compose.runOnUiThread { model.show(LivePage.HOME) }
+        tap("live-group-g1")
+        compose.runOnUiThread { model.sendCameraFrame(stale, jpeg, "stale camera question") }
+        compose.waitForIdle()
+        assertFalse(dispatcher.writes.any { it.first == "/v1/visual/groups/g1/messages" })
+        compose.runOnUiThread { model.sendCameraFrame(model.captureGeneration, jpeg, "fixture group camera") }
+        compose.waitUntil(10_000) { dispatcher.writes.any { it.first == "/v1/visual/groups/g1/messages" } }
+        assertEquals(2, dispatcher.writes.count { it.first.startsWith("/v1/visual/") })
+    }
+
     @Test fun asrDraftStaysEditableAndDoesNotSendUntilTheExistingSendAction() {
         asrResponse = """{"text":"fixture transcript"}"""
         tap("live-character-rin")
@@ -543,6 +581,7 @@ class LiveApiUiTest {
         compose.waitUntil(10_000) { dispatcher.requests.contains("GET /v1/stickers/sparkle/asset") }
         screenshot("11-sticker-packs", "live-stickers")
 
+        compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("live-sticker-send-sparkle").assertIsEnabled() }.isSuccess }
         tap("live-sticker-send-sparkle", true)
         compose.waitUntil(10_000) {
             dispatcher.writes.any { it.first == "/v1/chat/messages" && it.second.text("sticker_id") == "sparkle" }

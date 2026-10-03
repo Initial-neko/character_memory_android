@@ -187,20 +187,27 @@ internal fun LiveChat(state: LiveState, model: LiveViewModel) {
                     ) {
                         gridItems(selectedPack.stickers, key = { it.text("id") }) { sticker ->
                             val stickerId = sticker.text("id")
+                            val asset = model.assetUrl(sticker.text("url", "/v1/stickers/$stickerId/asset"))
+                            var ready by remember(asset) { mutableStateOf(false) }
+                            var failed by remember(asset) { mutableStateOf(false) }
+                            val canSend = ready && !callState.active && "send" !in state.busy
                             Column(Modifier.fillMaxWidth().testTag("live-sticker-$stickerId"),
                                 horizontalAlignment = Alignment.CenterHorizontally) {
                                 AsyncImage(
-                                    model = model.assetUrl(sticker.text("url", "/v1/stickers/$stickerId/asset")),
+                                    model = asset,
                                     contentDescription = sticker.text("label"),
-                                    modifier = Modifier.size(48.dp).clickable(enabled = "send" !in state.busy) {
+                                    onSuccess = { ready = true; failed = false },
+                                    onError = { ready = false; failed = true },
+                                    modifier = Modifier.size(48.dp).clickable(enabled = canSend) {
                                         model.send(stickerId = stickerId); showStickers = false
                                     }
                                 )
                                 TextButton(onClick = { model.send(stickerId = stickerId); showStickers = false },
-                                    enabled = "send" !in state.busy,
+                                    enabled = canSend,
                                     modifier = Modifier.testTag("live-sticker-send-$stickerId")) {
                                     Text("发送 ${sticker.text("label", stickerId)}", maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
+                                if (failed) Text("加载失败", modifier = Modifier.testTag("live-sticker-error-$stickerId"), color = LiveMuted)
                             }
                         }
                     }

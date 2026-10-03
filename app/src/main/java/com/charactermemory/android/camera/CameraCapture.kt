@@ -23,7 +23,7 @@ class CameraCapture(private val context: Context, private val view: TextureView,
     private var session: CameraCaptureSession? = null
     private var reader: ImageReader? = null
     private var surface: Surface? = null
-    private var ticket = 0L
+    @Volatile private var ticket = 0L
     @Volatile private var closed = false
     private var front = false
     private var sensor = 0
@@ -50,6 +50,23 @@ class CameraCapture(private val context: Context, private val view: TextureView,
                     ?: error("摄像头没有可用预览")
                 val texture = requireNotNull(view.surfaceTexture) { "摄像头预览尚未就绪" }
                 texture.setDefaultBufferSize(preview.width, preview.height)
+                main.post {
+                    if (!closed && ticket == generation && view.width > 0 && view.height > 0) {
+                        @Suppress("DEPRECATION")
+                        val rotation = CameraFramePolicy.rotation(sensor, (view.display?.rotation ?: 0) * 90, front)
+                        val transform = Matrix().apply {
+                            setScale(preview.width.toFloat() / view.width, preview.height.toFloat() / view.height)
+                            postRotate(rotation.toFloat(), preview.width / 2f, preview.height / 2f)
+                        }
+                        val bounds = RectF(0f, 0f, view.width.toFloat(), view.height.toFloat())
+                        transform.mapRect(bounds)
+                        transform.postTranslate(-bounds.left, -bounds.top)
+                        val scale = minOf(view.width / bounds.width(), view.height / bounds.height())
+                        transform.postScale(scale, scale)
+                        transform.postTranslate((view.width - bounds.width() * scale) / 2, (view.height - bounds.height() * scale) / 2)
+                        view.setTransform(transform)
+                    }
+                }
                 surface = Surface(texture)
                 reader = ImageReader.newInstance(size.first, size.second, ImageFormat.JPEG, 2).also { images ->
                     images.setOnImageAvailableListener({ source ->
@@ -119,6 +136,10 @@ class CameraCapture(private val context: Context, private val view: TextureView,
                 set(CaptureRequest.JPEG_ORIENTATION, 0)
             }.build()
             pending = true
+            val generation = ticket
+            handler.postDelayed({ if (!closed && ticket == generation && pending) {
+                pending = false; report(IllegalStateException("摄像头取帧超时，请重试"))
+            } }, 5000)
             current.capture(request, object : CameraCaptureSession.CaptureCallback() {
                 override fun onCaptureFailed(session: CameraCaptureSession, request: CaptureRequest, failure: CaptureFailure) {
                     pending = false; report(IllegalStateException("摄像头取帧失败"))
