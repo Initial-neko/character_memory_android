@@ -9,11 +9,11 @@ Status: **V1 voice/call/sticker/visual source and regressions integrated; execut
 | 证据 | P1 | P2 |
 |---|---|---|
 | JVM | ≥13，0 失败/错误/跳过 | ≥27（transport/projection 16 + LiveRules 9 + time formatting 2），0 失败/错误/跳过 |
-| 模拟器 | PrototypeUiTest ≥5 | LiveApiUiTest + VoiceMessageUiTest ≥39，合成 HTTPS、ASR 草稿、通话、表情 SVG/损坏禁发、视觉路由 |
-| 截图 | p1-01 至 p1-12，固定完整文件名 | p2-01 至 p2-19，准确文件名由汇总脚本定义 |
+| 模拟器 | PrototypeUiTest ≥5 | P2 instrumented tests ≥40（当前由 LiveApiUiTest + VoiceMessageUiTest 提供），合成 HTTPS、ASR 草稿、通话、表情 SVG/损坏禁发、视觉路由 |
+| 截图 | p1-01 至 p1-12，固定完整文件名 | p2-01 至 p2-21，准确文件名由汇总脚本定义 |
 | 真实 Core/真机媒体 | 分开记录 | 本地服务 ASR/TTS 与手机传感器分开验收，不用源代码或合成素材推定硬件 PASS |
 
-P2 截图保存到 `/sdcard/Pictures/CharacterMemoryP2/`：`p2-01-settings.png`、`p2-02-roster.png`、`p2-03-direct-chat.png`、`p2-04-chat-ime.png`、`p2-05-space.png`、`p2-06-character-draft.png`、`p2-07-ensemble-preview.png`、`p2-08-image-draft.png`、`p2-09-group-chat.png`。不能使用设计图或旧提交截图填补。
+P2 截图保存到 `/sdcard/Pictures/CharacterMemoryP2/`；当前固定清单为 `p2-01-settings.png`、`p2-02-roster.png`、`p2-03-direct-chat.png`、`p2-04-chat-ime.png`、`p2-05-space.png`、`p2-06-character-draft.png`、`p2-07-ensemble-preview.png`、`p2-08-image-draft.png`、`p2-09-group-chat.png`、`p2-10-usage.png`、`p2-11-sticker-packs.png`、`p2-12-space-mentions.png`、`p2-13-asr-draft.png`、`p2-14-voice-states.png`、`p2-15-voice-playback-error.png`、`p2-16-tts-playback.png`、`p2-17-call-listening.png`、`p2-18-call-speaking.png`、`p2-19-visual-controls.png`、`p2-20-media-routing-error.png`、`p2-21-composer-tools.png`。`scripts/summarize_evidence.py` 是文件名门槛的可执行事实源；不能使用设计图或旧提交截图填补。
 
 CI 先运行 `python3 -m unittest discover -s scripts -p 'test_*.py' -v`，覆盖 skipped/非法与缺失 XML、阶段隔离、缺图和 SHA。Android JVM 使用两次真实 `--rerun-tasks` 执行，第二轮先清除上一轮输出；各轮 XML/JSON 保存在 `artifacts/jvm-run-1/` 和 `artifacts/jvm-run-2/`。构建任务保留 APK/JUnit/lint，模拟器保留截图/JUnit/logcat。没有 `continue-on-error` 或静默忽略必需截图的回退。
 
@@ -26,7 +26,7 @@ CI 先运行 `python3 -m unittest discover -s scripts -p 'test_*.py' -v`，覆�
 | A. JVM | JUnit, MockWebServer, Kotlin Coroutines test | DTOs, REST errors, SSE parsing/retry/dedupe, ViewModel & CallController state machine | Android camera/mic/OS permissions |
 | B. Instrumented emulator | Compose UI Test, Espresso/UI Automator, Android emulator | navigation, forms, IME, accessibility, screenshots, fake media and mocked system state | hardware thermal/battery, all MediaProjection and headset cases |
 | C. Core integration | PC stack + Tailnet + Android client | real 202→SSE, character/group/Space, Vision routing, ASR/TTS API | all device/OEM background behaviors |
-| D. Hardware acceptance | ADB/logcat + screen recording + real phone, user-approved capture | real CameraX, AudioRecord, MediaProjection consent, lock/rotation/network/headsets | universal compatibility across every device and OEM |
+| D. Hardware acceptance | ADB/logcat + screen recording + real phone, user-approved capture | real Camera2, AudioRecord, MediaProjection consent, lock/rotation/network/headsets | universal compatibility across every device and OEM |
 
 Report **PASS, FAIL, SKIPPED or NOT RUN** separately for every level. Never replace missing hardware evidence with simulator PASS.
 
@@ -78,7 +78,7 @@ fixtures/
   visual-observation-rejected.json
 ~~~
 
-Read the [pinned Core 508c6f0 mobile API contract](https://github.com/Initial-neko/character_memory/blob/508c6f0/docs/current/MOBILE_API_CONTRACT.md) and actual source models before adding/changing fixtures. P2 uses test-local synthetic JSON/SSE fixtures; the directory above is a future-stage catalog, not a claim that all files exist. Provenance and backend acceptance are maintained in [P2_SETUP.md](P2_SETUP.md). Later add automated Core-generated schema checks so docs and fixtures do not drift.
+P2 synthetic fixtures were originally built against the historical Core `508c6f0` contract. That provenance does **not** prove compatibility with current Core `main`. Before adding or changing fixtures, compare the current [Core Mobile API Contract](https://github.com/Initial-neko/character_memory/blob/main/docs/current/MOBILE_API_CONTRACT.md), machine-readable route inventory and actual source/OpenAPI. The directory above is a future-stage catalog, not a claim that all files exist. Provenance and backend acceptance are maintained in [P2_SETUP.md](P2_SETUP.md); a cross-repository generated-schema/contract gate is still desirable so current Core and Android cannot drift while both independent CI pipelines stay green.
 
 ## 4. AI-driven UI inspection
 
