@@ -56,7 +56,7 @@ P0: document/verify existing route fixtures; canonical direct-conversation decis
 P1: Gradle + Compose bootstrap, six primary screens + local settings / additional mock surfaces and CI evidence **done**. MockWebServer/API fixture tests **moved to P2**, because P1 has no network stack.  
 P2: Direct 202/SSE/history; character wizard; ensemble lifecycle; group history; Space feed/comments; chat AI Image.  
 P3: CallController + audio turn queue; ASR and TTS binary playback; interruption tests.  
-P4: CameraX preview and switches; Android MediaProjection authorization/FGS; bounded frame selection; Vision observation.  
+P4: Camera2 preview and switches; Android MediaProjection authorization/FGS; bounded frame selection; Vision observation.  
 P5: offline/reconnect, notification scope, telemetry, power and memory, API compatibility, release checklist.
 
 Do not create production feature issues with claimed acceptance until the corresponding stage is ready for implementation.
