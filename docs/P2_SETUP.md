@@ -4,7 +4,7 @@ P2 使用现有 Core API，实现配置、角色与群聊列表、私聊/群聊�
 
 ## 配置真实连接
 
-1. 手机和 PC 登录同一个 Tailscale 网络，PC Core 与 Media 按 Core 的 [MOBILE_ACCESS.md](https://github.com/Initial-neko/character_memory/blob/508c6f0/docs/current/MOBILE_ACCESS.md) 运行。
+1. 手机和 PC 登录同一个 Tailscale 网络，PC Core 与 Media 按 Core 当前维护的 [MOBILE_ACCESS.md](https://github.com/Initial-neko/character_memory/blob/main/docs/current/MOBILE_ACCESS.md) 运行。
 2. 首次启动在设置填写 Core：`https://<node>.<tailnet>.ts.net`。仓库没有预置私人服务器地址，未配置时保持设置页。
 3. Media 通常为同一域名的 `https://<node>.<tailnet>.ts.net:8443`；可以独立填写 HTTPS origin。Core 是业务/SSE 服务，Media 是 ASR/TTS 服务，不能互换。
 4. 保存后打开角色列表，再进入私聊。连接错误在真实页面展示，不生成 Mock 列表或假回复。证书校验保持开启，不能用手机的 `127.0.0.1` 代替 PC。
@@ -23,15 +23,15 @@ Debug APK 可通过显式 activity extra `initial_core_url` / `initial_media_url
 
 ## Fixture 来源
 
-事实源固定为 [Core `508c6f0` 的 MOBILE_API_CONTRACT.md](https://github.com/Initial-neko/character_memory/blob/508c6f0/docs/current/MOBILE_API_CONTRACT.md)，并核对同 revision 的实际路由、模型和 Web 消费代码。源文件定义的 CURRENT 路由/事件为准；PROPOSED 设备配对、canonical Direct ID 等不得放进可调用 fixture。
+权威事实源是 Core 当前维护的 [MOBILE_API_CONTRACT.md](https://github.com/Initial-neko/character_memory/blob/main/docs/current/MOBILE_API_CONTRACT.md)、机器可读 route inventory 与实际 source/OpenAPI；CURRENT 路由/事件为准，PROPOSED 设备配对、canonical Direct ID 等不得放进可调用 fixture。
 
-开发期间本地 Core 已更新至 `3aa7a00f902e91b5616fbd108fc6f05a352b90ac`。已核对 `async_web.py` 的变更为服务端 channel lease 生命周期管理，SSE 路径和事件帧格式保持一致；此源码核对不代表该版本的真实服务已通过业务验收。
+现有 P2 合成 fixture 的历史起点是 Core `508c6f0`，因此它只能说明 fixture 的来源，不能证明 Android 当前 HEAD 与 Core 当前 HEAD 自动兼容。修改 fixture 时必须重新核对当前 Core 契约和实现；真实服务兼容性仍需要跨仓库契约检查或实际联调证据。
 
 JVM `CoreApiTest` / `ConversationProjectionTest` 与 `LiveApiUiTest` 的 JSON/SSE fixture 位于测试源码，使用合成角色、事件和图片。持久消息、异步事件与 history fixture 对照同 revision 的 `message_projection.py`、`async_web.py`、`application/async_conversation.py`、`history_web.py`。它们覆盖 HTTP 错误、202、可选/null 字段、群组事件、重连和持久 ID 去重；不是线上抓包，也不能证明当前用户服务器兼容。没有另建一份 Android 私有 API 契约。
 
 ## 前端自动化与用户后端验收
 
-CI 分开记录 P1/P2 JVM 和模拟器证据；两次 JVM 执行均使用 `--rerun-tasks`，分别保留 XML/JSON。P1 保持 ≥13 JVM、≥5 UI、准确的 12 个截图文件名；P2 保持 ≥25 JVM、≥6 UI 和 9 个独立截图。任何跳过、错误/缺失 XML、重复测试、缺截图都不记为 PASS。详见 [TESTING.md](TESTING.md)。
+CI 分开记录 P1/P2 JVM 和模拟器证据；两次 JVM 执行均使用 `--rerun-tasks`，分别保留 XML/JSON。P1 保持 ≥13 JVM、≥5 UI、准确的 12 个截图文件名；P2 当前保持 ≥27 JVM、≥40 instrumented tests 和准确的 21 个截图文件名。任何跳过、错误/缺失 XML、重复测试、缺截图都不记为 PASS。可执行阈值以 workflow 与 `scripts/summarize_evidence.py` 为准，详见 [TESTING.md](TESTING.md)。
 
 模拟器 `LiveApiUiTest` 使用测试注入的本机 HTTPS MockWebServer，检查真实页面调用协议与状态；不访问用户 PC。TLS localhost fixture 和测试证书只用于测试。模拟器截图需在当前提交人工/AI 审查，特别是输入法与窄屏。
 
@@ -49,4 +49,4 @@ CI 分开记录 P1/P2 JVM 和模拟器证据；两次 JVM 执行均使用 `--rer
 | 图片 rewrite/generate→预览→发送 | 未确认草稿不进入历史；发送后附件可读 |
 | Media 停止而 Core 仍在线 | 业务文字请求仍可用，媒体错误单独呈现 |
 
-这些操作可能产生真实持久写入，应由用户选择测试角色/群组执行。仓库 CI 不自动向真实后端发写请求。安装成功、Mock PASS 或浏览器可达都不能代替上述后端验收。语音、相机、录屏及长期后台/功耗验收留到 P3–P5，当前均 NOT RUN。
+这些操作可能产生真实持久写入，应由用户选择测试角色/群组执行。仓库 CI 不自动向真实后端发写请求。安装成功、Mock PASS 或浏览器可达都不能代替上述后端验收。V1 源码与合成 CI 已覆盖语音、Camera2、MediaProjection 的客户端路径，但真实手机麦克风/扬声器或耳机、摄像头、系统录屏授权、后台行为与长期功耗必须单独记录硬件证据；没有对应证据时该项仍应标为 NOT RUN。
