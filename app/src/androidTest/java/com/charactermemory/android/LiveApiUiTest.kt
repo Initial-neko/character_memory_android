@@ -1121,7 +1121,19 @@ class LiveApiUiTest {
         assertNotNull("System PiP menu must expose hangup action", device.findObject(
             androidx.test.uiautomator.By.desc("结束与Rin的通话")))
         screenshotDisplay("29-call-pip-actions")
-        requireNotNull(mute).click()
+        // PiP refreshes its accessibility tree while the screenshot is captured.
+        // Reacquire the actual system control; retry only a stale, unclicked node.
+        val clickDeadline = SystemClock.uptimeMillis() + 5000
+        var clicked = false
+        while (!clicked && SystemClock.uptimeMillis() < clickDeadline) {
+            try {
+                device.findObject(androidx.test.uiautomator.By.desc("静音通话麦克风"))?.let {
+                    it.click(); clicked = true
+                }
+            } catch (_: androidx.test.uiautomator.StaleObjectException) { }
+            if (!clicked) SystemClock.sleep(100)
+        }
+        assertTrue("System PiP microphone action must be clicked", clicked)
         val muteDeadline = SystemClock.uptimeMillis() + 10000
         while (!model.call.state.value.microphoneMuted && SystemClock.uptimeMillis() < muteDeadline) SystemClock.sleep(100)
         assertTrue(model.call.state.value.microphoneMuted)

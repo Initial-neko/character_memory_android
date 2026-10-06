@@ -151,6 +151,8 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
+          # Use deterministic Camera2 sources on the headless software GPU runner.
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back emulated -camera-front emulated
           script: bash scripts/run_emulator_acceptance.sh
       - name: Summarize P1 instrumented evidence
         if: always()
