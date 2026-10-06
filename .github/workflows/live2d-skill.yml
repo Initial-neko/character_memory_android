@@ -1,0 +1,30 @@
+name: Live2D skill offline checks
+on:
+  pull_request:
+    paths: ['skills/live2d-psd-preview/**', '.github/workflows/live2d-skill.yml']
+  push:
+    branches: [main]
+    paths: ['skills/live2d-psd-preview/**', '.github/workflows/live2d-skill.yml']
+permissions:
+  contents: read
+jobs:
+  skill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Offline credential, model and packaging tests
+        run: python -m unittest discover -s skills/live2d-psd-preview/scripts -p 'test_*.py' -v
+      - name: Mask bridge regression
+        run: node skills/live2d-psd-preview/scripts/check-mask-bridge.cjs
+      - name: Package allowlisted skill and scan credential candidates
+        run: |
+          mkdir -p artifacts
+          python skills/live2d-psd-preview/scripts/package_skill.py --output artifacts/live2d-psd-preview.skill.zip --report artifacts/live2d-skill-package.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: live2d-psd-preview-skill
+          path: artifacts/
+          if-no-files-found: error

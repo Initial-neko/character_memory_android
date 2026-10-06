@@ -1,0 +1,19 @@
+allprojects {
+    afterEvaluate {
+        def helpers = project.findProperty('live2dHelperDir')
+        if (!helpers) throw new GradleException('live2dHelperDir is required')
+        kotlin.sourceSets.getByName('main').kotlin.setSrcDirs([file('src/main/kotlin'), file(helpers)])
+        kotlin.sourceSets.getByName('main').kotlin.setIncludes([
+            'org/**', 'io/github/psd2live/core/**', 'io/github/psd2live/i18n/**',
+            'io/github/psd2live/ui/RigCanvasSupport.kt', 'stagea/**'
+        ])
+        tasks.register('skillExport', JavaExec) {
+            classpath = sourceSets.main.runtimeClasspath
+            mainClass = 'stagea.StageExportKt'
+            args = [project.findProperty('psdInput'), project.findProperty('modelOutput'),
+                    project.findProperty('mouthColor') ?: '']
+            jvmArgs '-Xmx4g', '-Djava.awt.headless=true', '-Dfile.encoding=UTF-8',
+                    '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8'
+        }
+    }
+}
