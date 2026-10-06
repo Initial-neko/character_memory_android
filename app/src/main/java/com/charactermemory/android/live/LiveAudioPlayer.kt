@@ -22,7 +22,8 @@ import java.io.IOException
 
 /** One app-wide MediaPlayer owner shared by chat voice messages and Space attachments. */
 @Composable
-internal fun LiveAudioPlayerButton(url: String, label: String, tag: String, playbackOwner: String) {
+internal fun LiveAudioPlayerButton(url: String, label: String, tag: String, playbackOwner: String,
+    voiceBarLabel: String? = null) {
     val context = androidx.compose.ui.platform.LocalContext.current
     androidx.compose.runtime.LaunchedEffect(context) { LiveAudioPlayback.initialize(context) }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -37,7 +38,7 @@ internal fun LiveAudioPlayerButton(url: String, label: String, tag: String, play
             LiveAudioPlayback.release(playbackOwner)
         }
     }
-    LivePlaybackAction(label, status, tag, url.isNotBlank() && !LiveAudioPlayback.blocked) {
+    LivePlaybackAction(label, status, tag, url.isNotBlank() && !LiveAudioPlayback.blocked, voiceBarLabel) {
         LiveAudioPlayback.toggle(playbackOwner, url)
     }
 }
@@ -60,6 +61,13 @@ internal object LiveAudioPlayback {
     fun stopAll() { speechRequests.cancelAll(); releasePlayer(); state.value = UiState(null, "播放") }
     private data class UiState(val owner: String?, val status: String)
     private val state = mutableStateOf(UiState(null, "播放"))
+    private var callOutputEnabled by mutableStateOf(true)
+    val callSpeakerEnabled get() = callOutputEnabled
+    private var activeIsCall = false
+    fun setCallSpeakerEnabled(enabled: Boolean) {
+        callOutputEnabled = enabled
+        if (activeIsCall) activePlayer?.setVolume(if (enabled) 1f else 0f, if (enabled) 1f else 0f)
+    }
     private var activeOwner: String? = null
     private var activePlayer: MediaPlayer? = null
     private var generation: Long = 0L
@@ -99,12 +107,14 @@ internal object LiveAudioPlayback {
         val ticket = ++generation
         val created = MediaPlayer()
         created.setAudioAttributes(attributes)
+        activeIsCall = allowBlocked
         activeOwner = owner
         activePlayer = created
         completion = CompletableDeferred()
         state.value = UiState(owner, "加载中…")
         created.setOnPreparedListener { prepared ->
             if (isCurrent(owner, prepared, ticket)) {
+                if (activeIsCall) prepared.setVolume(if (callSpeakerEnabled) 1f else 0f, if (callSpeakerEnabled) 1f else 0f)
                 runCatching { prepared.start() }.onFailure { finish(owner, prepared, ticket, "播放失败，点击重试") }
                 if (isCurrent(owner, prepared, ticket)) state.value = UiState(owner, "停止")
             }

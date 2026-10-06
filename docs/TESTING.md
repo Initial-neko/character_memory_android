@@ -10,7 +10,7 @@ Status: **V1 voice/call/sticker/visual source and regressions integrated; execut
 |---|---|---|
 | JVM | ≥13，0 失败/错误/跳过 | ≥27（transport/projection 16 + LiveRules 9 + time formatting 2），0 失败/错误/跳过 |
 | 模拟器 | PrototypeUiTest ≥5 | LiveApiUiTest + VoiceMessageUiTest ≥39，合成 HTTPS、ASR 草稿、通话、表情 SVG/损坏禁发、视觉路由 |
-| 截图 | p1-01 至 p1-12，固定完整文件名 | p2-01 至 p2-19，准确文件名由汇总脚本定义 |
+| 截图 | p1-01 至 p1-12，固定完整文件名 | p2-01 至 p2-29，准确文件名由汇总脚本定义；22 静音、23 全屏视频及人物小窗、24 共享、25 连接授权等待、26 共享选择、27 原生 PiP、28 系统共享范围选择、29 原生 PiP 菜单 |
 | 真实 Core/真机媒体 | 分开记录 | 本地服务 ASR/TTS 与手机传感器分开验收，不用源代码或合成素材推定硬件 PASS |
 
 P2 截图保存到 `/sdcard/Pictures/CharacterMemoryP2/`：`p2-01-settings.png`、`p2-02-roster.png`、`p2-03-direct-chat.png`、`p2-04-chat-ime.png`、`p2-05-space.png`、`p2-06-character-draft.png`、`p2-07-ensemble-preview.png`、`p2-08-image-draft.png`、`p2-09-group-chat.png`。不能使用设计图或旧提交截图填补。
@@ -46,6 +46,9 @@ Report **PASS, FAIL, SKIPPED or NOT RUN** separately for every level. Never repl
 | CALL-01 | audio segment → ASR → Core 202/SSE → TTS | correct conversation and speaker, ordered subtitles/audio |
 | CALL-02 | incoming speech while AI waiting/speaking | no duplicate/overlapping queue, cancellation releases mic and player |
 | CAM-01 | camera start/front-back switch/stop | proper preview, bounded keyframes, camera released on exit |
+| CAM-CALL-02 | call video, mute, switch lens, spoken ASR turn, close/hangup | Preview fills ≥95% of call stage; no frame/send UI; real JPEG attaches once to the spoken turn, no duplicate chat POST, no periodic CAMERA observation POST; closed/stale frames cannot cross call/source ownership |
+| CHAT-UI-01 | open composer tools, long-press plain character reply, explicit speech tap | Same-size image/call cards; video/share entered inside call; no ordinary TTS control before long-press, no TTS request from long-press alone; cache/error/stop behavior preserved |
+| VOICE-UI-01 | persisted VOICE_MESSAGE in pending/ready/failed/unknown states | Voice-bar layout in every state; ready bar is an entire ≥176dp by ≥48dp playback target without long-press; transcript and failures retained; no invented duration or auto playback |
 | VIS-01 | camera frame + text to LLM | captured frame metadata and correct target PersonRuntime |
 | SCR-01 | user approves full screen capture, switches apps | MediaProjection service captures real user-consented content; model receives bounded DISPLAY frame |
 | SCR-02 | permission declined/OS stops capture/phone rotates | status updates, no extra capture or silent authorization bypass |
@@ -118,6 +121,8 @@ adb logcat -d > logcat.txt
 本地命令要求已有 JDK17、Gradle8.9 分发包、SDK 和依赖缓存；任一缺失就报告阻塞，不自动联网安装。CI 使用既有 runner 环境。The instrumentation task requires an available emulator/device. Publishing `app-debug.apk` without running a hardware test is not proof of screen-sharing support.
 
 ## 6. PR verification template
+
+`LiveApiUiTest.callStageReferenceScreensPreserveOneSession` captures the normal, static Live2D and shared-screen stages on an emulator. It checks unchanged call start identity/backend writes across display/history switches and speaker state across minimizing. Its shared frame and recording are fixtures: this test does not certify real MediaProjection, physical microphone, camera or PC Core integration. `CallStageTest` checks display precedence and restoration without access to call factories.
 
 ~~~text
 Core contract revision:

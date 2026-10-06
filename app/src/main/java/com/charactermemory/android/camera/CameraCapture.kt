@@ -29,11 +29,12 @@ class CameraCapture(private val context: Context, private val view: TextureView,
     private var sensor = 0
     private var pending = false
 
-    fun open(useFront: Boolean = false) {
+    @Synchronized fun open(useFront: Boolean = false) {
+        // Invalidate old main-thread frame callbacks immediately when switching lenses.
+        val generation = ++ticket
         handler.post {
-            if (closed) return@post
+            if (closed || ticket != generation) return@post
             release()
-            val generation = ++ticket
             try {
                 check(context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) { "未获得摄像头权限" }
                 val manager = context.getSystemService(CameraManager::class.java)
@@ -53,15 +54,16 @@ class CameraCapture(private val context: Context, private val view: TextureView,
                 main.post {
                     if (!closed && ticket == generation && view.width > 0 && view.height > 0) {
                         @Suppress("DEPRECATION")
-                        val rotation = CameraFramePolicy.rotation(sensor, (view.display?.rotation ?: 0) * 90, front)
+                        val rotation = CameraFramePolicy.previewRotation((view.display?.rotation ?: 0) * 90)
+                        val oriented = CameraFramePolicy.previewBufferSize(preview.width, preview.height, sensor)
                         val transform = Matrix().apply {
-                            setScale(preview.width.toFloat() / view.width, preview.height.toFloat() / view.height)
-                            postRotate(rotation.toFloat(), preview.width / 2f, preview.height / 2f)
+                            setScale(oriented.first.toFloat() / view.width, oriented.second.toFloat() / view.height)
+                            postRotate(rotation.toFloat(), oriented.first / 2f, oriented.second / 2f)
                         }
                         val bounds = RectF(0f, 0f, view.width.toFloat(), view.height.toFloat())
                         transform.mapRect(bounds)
                         transform.postTranslate(-bounds.left, -bounds.top)
-                        val scale = minOf(view.width / bounds.width(), view.height / bounds.height())
+                        val scale = maxOf(view.width / bounds.width(), view.height / bounds.height())
                         transform.postScale(scale, scale)
                         transform.postTranslate((view.width - bounds.width() * scale) / 2, (view.height - bounds.height() * scale) / 2)
                         view.setTransform(transform)

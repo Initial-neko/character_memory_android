@@ -107,14 +107,14 @@ class VoiceMessageUiTest {
         render(message("ready", mediaId = "asset-1"), wavFile.toURI().toString())
         val bounds = compose.onNodeWithTag(playTag).fetchSemanticsNode().boundsInWindow
         val density = compose.activity.resources.displayMetrics.density
-        assertTrue("Playback control should be an icon, not a full text button", bounds.width <= 48 * density + 1)
+        assertTrue("Whole voice bar is playable", bounds.width >= 176 * density - 1 && bounds.height >= 48 * density - 1)
     }
 
     @Test fun readyWithAssetShowsExplicitPlayActionWithoutStartingOnComposition() {
         render(message("ready", mediaId = "asset-1"), wavFile.toURI().toString())
 
         compose.onNodeWithTag("$tag-content").assertIsDisplayed().assertTextContains("persisted words", substring = true)
-        compose.onNodeWithTag("$tag-status").assertTextContains("语音已就绪", substring = true)
+        compose.onNodeWithTag("$tag-status").assertDoesNotExist()
         compose.onNodeWithTag(playTag).assertIsDisplayed().assert(hasContentDescription("播放语音"))
         compose.onNodeWithTag(playTag).assert(hasStateDescription("播放"))
     }
@@ -186,7 +186,10 @@ class VoiceMessageUiTest {
     @Test fun capturesPendingReadyFailedAndMissingIdStates() {
         renderStateGallery()
         compose.onNodeWithTag("voice-gallery-pending-status").assertTextContains("语音生成中", substring = true)
-        compose.onNodeWithTag("voice-gallery-ready-status").assertTextContains("语音已就绪", substring = true)
+        compose.onNodeWithTag("voice-gallery-ready-status").assertDoesNotExist()
+        compose.onNodeWithTag("voice-gallery-ready-play").assertIsDisplayed()
+        compose.onNodeWithTag("voice-gallery-pending-bar").assertIsDisplayed()
+        compose.onNodeWithTag("voice-gallery-failed-bar").assertIsDisplayed()
         compose.onNodeWithTag("voice-gallery-missing-status").assertTextContains("语音资源不可用", substring = true)
         compose.onNodeWithTag("voice-gallery-failed-status").assertTextContains("语音生成失败", substring = true)
         captureScreenshot("p2-14-voice-states.png")

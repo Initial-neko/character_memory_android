@@ -8,6 +8,7 @@ interface VoiceCallPort {
     fun recorder(): VoiceRecorderPort
     suspend fun transcribe(pcm: ByteArray): String
     suspend fun send(text: String): String
+    suspend fun sendVisual(text: String, frame: String): String = error("当前通话不支持视觉输入")
     suspend fun speak(item: CallEffect.Speak)
     fun stopPlayback()
 }
@@ -18,6 +19,12 @@ data class VoiceCallState(
     val transcript: String = "",
     val speaker: String? = null,
     val pendingCount: Int = 0,
+    val microphoneMuted: Boolean = false,
+    val transportAvailable: Boolean = true,
+    /** Receipt currently awaiting the matching reaction, exposed for strict recovery reconciliation. */
+    val receiptKey: String? = null,
+    val replyText: String = "",
+    val startedAtMs: Long = 0,
     val error: String? = null
 )
 
@@ -41,10 +48,12 @@ class VoiceCallCoordinator(
     private var asr: Job? = null
     private var timeout: Job? = null
     private var speaking = false
+    private var inputEpoch = 0L
+    private var inputCleanup: Job? = null
 
     fun requestStart(): Long? {
         val target = contextProvider()
-        if (mutable.value.active || cleanup?.isActive == true || !target.foreground || !target.isChatPage ||
+        if (mutable.value.active || cleanup?.isActive == true || inputCleanup?.isActive == true || !target.foreground || !target.isChatPage ||
             target.targetId.isBlank() || target.conversationId.isBlank()) return null
         context = target
         port = portFactory()
@@ -52,16 +61,60 @@ class VoiceCallCoordinator(
         mutable.value = VoiceCallState(active = true, phase = "permission")
         return ++generation
     }
-    fun permission(ticket: Long, granted: Boolean) {
-        if (ticket != generation || mutable.value.phase != "permission") return
-        if (!valid(ticket) || !granted) { end(if (granted) null else "麦克风授权被拒绝，仍可文字聊天"); return }
+    fun permission(ticket: Long, granted: Boolean): Boolean {
+        if (ticket != generation || mutable.value.phase != "permission") return false
+        if (!valid(ticket) || !granted) { end(if (granted) null else "麦克风授权被拒绝，仍可文字聊天"); return false }
+        mutable.value = mutable.value.copy(startedAtMs = System.nanoTime() / 1_000_000)
         turns.start(); port!!.stopPlayback(); listen(ticket)
+        return mutable.value.active
+    }
+    fun setMicrophoneMuted(muted: Boolean) {
+        if (!mutable.value.active || mutable.value.phase == "permission" || mutable.value.microphoneMuted == muted) return
+        mutable.value = mutable.value.copy(microphoneMuted = muted)
+        if (!muted) { listen(generation); return }
+        pauseInputCapture(discardPendingInput = true)
+        mutable.value = mutable.value.copy(pendingCount = turns.pendingCount,
+            phase = if (speaking) "speaking" else "muted")
+    }
+
+    /** A failed call event stream pauses microphone/ASR until its reconnect opens. */
+    fun setTransportAvailable(available: Boolean) {
+        if (!mutable.value.active || mutable.value.phase == "permission" ||
+            mutable.value.transportAvailable == available) return
+        mutable.value = mutable.value.copy(transportAvailable = available, phase = if (available) mutable.value.phase else when {
+            mutable.value.microphoneMuted -> "muted"
+            speaking -> "speaking"
+            else -> "reconnecting"
+        })
+        if (!available) pauseInputCapture(discardPendingInput = false) else listen(generation)
+    }
+
+    private fun pauseInputCapture(discardPendingInput: Boolean) {
+        inputEpoch++
+        if (discardPendingInput) turns.discardPendingInput()
+        mutable.value = mutable.value.copy(pendingCount = turns.pendingCount)
+        val oldRecorder = recorder; recorder = null
+        val oldCapture = capture; capture = null
+        val oldAsr = asr; asr = null
+        oldCapture?.cancel(); oldAsr?.cancel()
+        val previous = inputCleanup
+        val ticket = generation
+        // Native release must survive owner cancellation, just like hangup cleanup.
+        inputCleanup = CoroutineScope(scope.coroutineContext.minusKey(Job)).launch {
+            previous?.join()
+            withContext(Dispatchers.IO) { oldRecorder?.cancel() }
+            oldCapture?.join(); oldAsr?.join()
+            inputCleanup = null
+            if (valid(ticket)) listen(ticket)
+        }
     }
     fun end(error: String? = null) {
         val endedGeneration = ++generation
+        inputEpoch++
         if (!mutable.value.active && recorder == null && session == null && cleanup?.isActive != true) {
             turns.end(); timeout?.cancel(); timeout = null; speaking = false
-            mutable.value = mutable.value.copy(active = false, phase = "idle", pendingCount = 0, speaker = null, error = error)
+            mutable.value = mutable.value.copy(active = false, phase = "idle", pendingCount = 0,
+                speaker = null, receiptKey = null, error = error)
             return
         }
         turns.end(); speaking = false; timeout = null
@@ -77,11 +130,35 @@ class VoiceCallCoordinator(
             oldSession?.cancelAndJoin()
             if (generation == endedGeneration) mutable.value = mutable.value.copy(phase = "idle")
         }
-        mutable.value = mutable.value.copy(active = false, phase = "ending", pendingCount = 0, speaker = null, error = error)
+        mutable.value = mutable.value.copy(active = false, phase = "ending", pendingCount = 0,
+            speaker = null, receiptKey = null, error = error)
     }
     fun reply(id: String, key: String, text: String, character: String) {
         if (!valid(generation) || !turns.active) return
         execute(turns.reply(id, key, text, character), generation)
+    }
+    /** History recovery may only deliver a reply attached to the exact accepted call receipt. */
+    fun reconcileHistoryReply(receiptKey: String, id: String, text: String, character: String): Boolean {
+        if (!valid(generation) || !turns.waiting || receiptKey.isBlank() ||
+            mutable.value.receiptKey != receiptKey) return false
+        execute(turns.reply(id, receiptKey, text, character), generation)
+        return true
+    }
+    /** An idle scheduler watermark may complete only the receipt currently owned by this call. */
+    fun reconcileHistoryCompleted(receiptKey: String): Boolean {
+        if (!valid(generation) || !turns.waiting || receiptKey.isBlank() ||
+            mutable.value.receiptKey != receiptKey) return false
+        execute(turns.completed(receiptKey), generation)
+        return true
+    }
+    fun externalAccepted(key: String) {
+        if (valid(generation) && turns.active) execute(turns.externalAccepted(key), generation)
+    }
+    fun visual(text: String, frame: String): Boolean {
+        if (!valid(generation) || !turns.active) return false
+        return try { execute(turns.visual(text, frame), generation); true }
+        catch (error: IllegalStateException) { mutable.value = mutable.value.copy(error = error.message); false }
+        catch (error: IllegalArgumentException) { mutable.value = mutable.value.copy(error = error.message); false }
     }
     fun completed(key: String) {
         if (!valid(generation) || !turns.active) return
@@ -97,28 +174,38 @@ class VoiceCallCoordinator(
         CoroutineScope(scope.coroutineContext + requireNotNull(session)).launch(block = block)
 
     private fun listen(ticket: Long) {
-        if (!valid(ticket) || speaking || capture?.isActive == true || asr?.isActive == true || !turns.active) return
+        if (!valid(ticket) || !turns.active) return
+        if (mutable.value.microphoneMuted) {
+            if (!speaking) mutable.value = mutable.value.copy(phase = "muted", speaker = null)
+            return
+        }
+        if (!mutable.value.transportAvailable) {
+            if (!speaking) mutable.value = mutable.value.copy(phase = "reconnecting", speaker = null)
+            return
+        }
+        if (speaking || inputCleanup?.isActive == true || capture?.isActive == true || asr?.isActive == true) return
+        val epoch = inputEpoch
         mutable.value = mutable.value.copy(phase = if (turns.waiting) "waiting" else "listening", speaker = null)
         val input = try { port!!.recorder() } catch (_: Exception) { end("录音初始化失败"); return }
         recorder = input
         capture = launchTask {
             try {
                 val pcm = input.capture {}
-                if (!valid(ticket)) return@launchTask
+                if (!valid(ticket) || epoch != inputEpoch || mutable.value.microphoneMuted || !mutable.value.transportAvailable) return@launchTask
                 if (pcm.isEmpty()) { capture = null; recorder = null; listen(ticket); return@launchTask }
                 recorder = null; capture = null
                 mutable.value = mutable.value.copy(phase = if (turns.waiting) "waiting" else "transcribing")
                 asr = launchTask {
                     try {
                         val text = port!!.transcribe(pcm).trim()
-                        if (valid(ticket)) {
+                        if (valid(ticket) && epoch == inputEpoch && !mutable.value.microphoneMuted && mutable.value.transportAvailable) {
                             mutable.value = mutable.value.copy(transcript = text,
                                 error = if (text.isBlank()) "没有识别到有效内容" else null)
                             execute(turns.transcript(text), ticket)
                         }
                     } catch (cancelled: CancellationException) { throw cancelled }
-                    catch (failure: Exception) { if (valid(ticket)) mutable.value = mutable.value.copy(error = failure.message ?: "转写失败") }
-                    finally { if (valid(ticket)) { asr = null; listen(ticket) } }
+                    catch (failure: Exception) { if (valid(ticket) && epoch == inputEpoch) mutable.value = mutable.value.copy(error = failure.message ?: "转写失败") }
+                    finally { if (valid(ticket) && epoch == inputEpoch) { asr = null; listen(ticket) } }
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { if (valid(ticket)) end(failure.message ?: "录音失败") }
@@ -130,19 +217,24 @@ class VoiceCallCoordinator(
         effects.forEach { effect -> when (effect) {
             is CallEffect.Send -> {
                 timeout?.cancel()
+                mutable.value = mutable.value.copy(receiptKey = null)
                 timeout = launchTask { delay(responseTimeoutMs); if (valid(ticket)) end("回应超时，通话已结束；请刷新历史确认，勿重复发送") }
                 mutable.value = mutable.value.copy(phase = "waiting")
                 launchTask {
                     try {
-                        val receipt = port!!.send(effect.text)
-                        if (valid(ticket)) execute(turns.accepted(receipt), ticket)
+                        val receipt = if (effect.visualFrame == null) port!!.send(effect.text)
+                            else port!!.sendVisual(effect.text, effect.visualFrame)
+                        if (valid(ticket)) {
+                            mutable.value = mutable.value.copy(receiptKey = receipt)
+                            execute(turns.accepted(receipt), ticket)
+                        }
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (_: Exception) { if (valid(ticket)) end("未确认服务器是否接收，通话已结束；请刷新历史确认，勿重复发送") }
                 }
             }
             is CallEffect.Speak -> {
                 speaking = true
-                mutable.value = mutable.value.copy(phase = "speaking", speaker = effect.characterId)
+                mutable.value = mutable.value.copy(phase = "speaking", speaker = effect.characterId, replyText = effect.text)
                 val oldRecorder = recorder; recorder = null
                 val oldCapture = capture; capture = null
                 launchTask {
@@ -159,6 +251,8 @@ class VoiceCallCoordinator(
             }
         } }
         if (!turns.awaitingReaction) { timeout?.cancel(); timeout = null }
+        if (!turns.waiting && mutable.value.receiptKey != null)
+            mutable.value = mutable.value.copy(receiptKey = null)
         if (!speaking) listen(ticket)
     }
 }

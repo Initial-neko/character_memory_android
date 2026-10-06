@@ -1,5 +1,7 @@
 package com.charactermemory.android.live
 
+import android.content.Context
+import android.content.ContextWrapper
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -15,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -26,11 +29,53 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.charactermemory.android.MainActivity
 import com.charactermemory.android.data.*
+import coil.compose.AsyncImage
+import kotlinx.coroutines.delay
+
+internal data class CallPresentation(
+    val isInPip: Boolean,
+    val enterPip: () -> Unit,
+    val setConsentInFlight: (name: String, inFlight: Boolean) -> Unit
+)
+
+internal val LocalCallPresentation = staticCompositionLocalOf {
+    CallPresentation(false, {}, { _, _ -> })
+}
+
+private tailrec fun Context.findMainActivity(): MainActivity? = when (this) {
+    is MainActivity -> this
+    is ContextWrapper -> baseContext.findMainActivity()
+    else -> null
+}
 
 @Composable
 fun LiveApp(model: LiveViewModel = viewModel(factory = LiveViewModel.factory(LocalContext.current))) {
     val state by model.state.collectAsStateWithLifecycle()
+    val call by model.call.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val activity = remember(context) { context.findMainActivity() }
+    val isInPip = activity?.isCallPipMode == true
+    val fullScreenCall = call.active && state.page == LivePage.CHAT
+    DisposableEffect(activity, model) {
+        activity?.attachCallModel(model)
+        onDispose { activity?.detachCallModel(model) }
+    }
+    SideEffect {
+        activity?.updateCallPictureInPicture(state.target?.name ?: "人物", call, state.page == LivePage.CHAT)
+    }
+    val callPresentation = CallPresentation(
+        isInPip = isInPip,
+        enterPip = {
+            activity?.enterCallPictureInPicture(
+                state.target?.name ?: "人物",
+                model.call.state.value,
+                state.page == LivePage.CHAT
+            )
+        },
+        setConsentInFlight = { name, inFlight -> activity?.setCallConsentInFlight(name, inFlight) }
+    )
     val owner = LocalLifecycleOwner.current
     DisposableEffect(owner, model) {
         val observer = LifecycleEventObserver { _, event ->
@@ -46,10 +91,12 @@ fun LiveApp(model: LiveViewModel = viewModel(factory = LiveViewModel.factory(Loc
     }
     val roots = setOf(LivePage.HOME, LivePage.SPACE, LivePage.SETTINGS)
     BackHandler(state.page !in roots) { model.back() }
-    MaterialTheme(colorScheme = darkColorScheme(primary = LiveAccent, secondary = LivePurple, background = LiveNavy,
+    CompositionLocalProvider(LocalCallPresentation provides callPresentation) {
+      MaterialTheme(colorScheme = darkColorScheme(primary = LiveAccent, secondary = LivePurple, background = LiveNavy,
         surface = LivePanel, onSurface = LivePale, onPrimary = LiveNavy)) {
         Scaffold(containerColor = LiveNavy, contentWindowInsets = WindowInsets.safeDrawing,
             topBar = {
+                if (!isInPip && !fullScreenCall) {
                 Row(Modifier.fillMaxWidth().background(LiveNavy).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
                     .heightIn(min = 62.dp).padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -73,8 +120,9 @@ fun LiveApp(model: LiveViewModel = viewModel(factory = LiveViewModel.factory(Loc
                     if (state.page == LivePage.HOME) LiveIconAction(LiveSymbol.REFRESH, "刷新会话列表", "live-refresh",
                         "roster" !in state.busy, model::refresh)
                 }
+                }
             }, bottomBar = {
-                if (state.page in roots) NavigationBar(containerColor = Color(0xFF111B2C)) {
+                if (!isInPip && state.page in roots) NavigationBar(containerColor = Color(0xFF111B2C)) {
                     listOf(LivePage.HOME to "聊天", LivePage.SPACE to "空间", LivePage.SETTINGS to "设置").forEach { (page, label) ->
                         NavigationBarItem(selected = state.page == page, onClick = { model.show(page) },
                             icon = {
@@ -95,24 +143,78 @@ fun LiveApp(model: LiveViewModel = viewModel(factory = LiveViewModel.factory(Loc
                     }
                 }
             }) { inner ->
-            Column(Modifier.fillMaxSize().padding(inner).consumeWindowInsets(inner).imePadding()
-                .background(Brush.verticalGradient(listOf(LiveNavy, Color(0xFF0C1428), LiveNavy)))) {
-                state.error?.let { LiveFeedback(it, "live-error", true) }
-                state.notice?.let { LiveFeedback(it, "live-notice") }
-                Box(Modifier.weight(1f)) {
-                    when (state.page) {
-                        LivePage.HOME -> LiveHome(state, model)
-                        LivePage.SETTINGS -> LiveSettings(state, model)
-                        LivePage.CHAT -> LiveChat(state, model)
-                        LivePage.CHARACTER -> LiveCharacter(state, model)
-                        LivePage.ENSEMBLE -> LiveEnsemble(state, model)
-                        LivePage.SPACE -> LiveSpace(state, model)
-                        LivePage.IMAGE -> LiveImage(state, model)
-                        LivePage.DETAILS -> LiveDetails(state)
-                        LivePage.USAGE -> LiveUsage(state, model)
+            if (isInPip) {
+                val target = state.target
+                if (call.active && target != null) {
+                    CallPipCompactContent(state, target, model, call.startedAtMs)
+                } else {
+                    Box(Modifier.fillMaxSize().padding(inner).background(LiveNavy), contentAlignment = Alignment.Center) {
+                        Text("通话已结束", color = LivePale, modifier = Modifier.testTag("live-call-pip-ended"))
+                    }
+                }
+            } else {
+                Column(Modifier.fillMaxSize().padding(inner).consumeWindowInsets(inner).imePadding()
+                    .background(Brush.verticalGradient(listOf(LiveNavy, Color(0xFF0C1428), LiveNavy)))) {
+                    state.error?.let { LiveFeedback(it, "live-error", true) }
+                    state.notice?.let { LiveFeedback(it, "live-notice") }
+                    if (call.active && state.page != LivePage.CHAT) {
+                        TextButton(onClick = { model.show(LivePage.CHAT) },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("live-call-return")) {
+                            Text("${state.target?.name ?: "人物"} · 通话进行中 · 返回通话")
+                        }
+                    }
+                    Box(Modifier.weight(1f)) {
+                        when (state.page) {
+                            LivePage.HOME -> LiveHome(state, model)
+                            LivePage.SETTINGS -> LiveSettings(state, model)
+                            LivePage.CHAT -> LiveChat(state, model)
+                            LivePage.CHARACTER -> LiveCharacter(state, model)
+                            LivePage.ENSEMBLE -> LiveEnsemble(state, model)
+                            LivePage.SPACE -> LiveSpace(state, model)
+                            LivePage.IMAGE -> LiveImage(state, model)
+                            LivePage.DETAILS -> LiveDetails(state)
+                            LivePage.USAGE -> LiveUsage(state, model)
+                        }
                     }
                 }
             }
+        }
+      }
+    }
+}
+
+@Composable
+private fun CallPipCompactContent(state: LiveState, target: ChatTarget, model: LiveViewModel, startedAtMs: Long) {
+    var elapsedSeconds by remember(startedAtMs) { mutableLongStateOf(0) }
+    LaunchedEffect(startedAtMs) {
+        if (startedAtMs > 0) while (true) {
+            elapsedSeconds = ((System.nanoTime() / 1_000_000 - startedAtMs) / 1000).coerceAtLeast(0)
+            delay(1000)
+        }
+    }
+    Box(Modifier.fillMaxSize().background(LiveNavy).testTag("live-call-pip-content")) {
+        val avatar = state.avatars[target.id].orEmpty()
+        if (avatar.isNotBlank()) {
+            AsyncImage(
+                model = model.assetUrl(avatar),
+                contentDescription = "${target.name}人物画面",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFF29436B), LiveNavy))),
+                contentAlignment = Alignment.Center) {
+                Text(target.name.take(1), color = LivePale.copy(alpha = .45f), fontSize = 88.sp)
+            }
+        }
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+            colorStops = arrayOf(0f to Color.Transparent, .5f to Color.Transparent, 1f to Color.Black.copy(alpha = .82f))
+        )))
+        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Text(target.name, color = Color.White, fontSize = 15.sp, maxLines = 1,
+                overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("live-call-pip-name"))
+            Text("%02d:%02d".format(elapsedSeconds / 60, elapsedSeconds % 60), color = Color.White.copy(alpha = .82f),
+                fontSize = 12.sp, modifier = Modifier.testTag("live-call-pip-duration"))
         }
     }
 }

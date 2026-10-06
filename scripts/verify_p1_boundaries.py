@@ -27,10 +27,18 @@ projection_valid = bool(app is not None and
         service.attrib.get(ns + "exported") == "false" and
         service.attrib.get(ns + "foregroundServiceType") == "mediaProjection" for service in app.findall("service")))
 projection_permissions = {"android.permission.FOREGROUND_SERVICE", "android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"}
+call_valid = bool(app is not None and
+    (ROOT / "app/src/main/java/com/charactermemory/android/audio/CallSessionService.kt").exists() and
+    any(service.attrib.get(ns + "name") == ".audio.CallSessionService" and
+        service.attrib.get(ns + "exported") == "false" and
+        set(service.attrib.get(ns + "foregroundServiceType", "").split("|")) == {"microphone", "mediaPlayback"}
+        for service in app.findall("service")))
+call_permissions = {"android.permission.FOREGROUND_SERVICE", "android.permission.FOREGROUND_SERVICE_MICROPHONE", "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK", "android.permission.POST_NOTIFICATIONS"}
 camera_valid = (ROOT / "app/src/main/java/com/charactermemory/android/camera/CameraCapture.kt").exists()
 forbidden = ("CAMERA", "FOREGROUND_SERVICE", "MEDIA_PROJECTION", "POST_NOTIFICATIONS")
 violations = [permission for permission in permissions if any(token in permission for token in forbidden)
               and not (projection_valid and permission in projection_permissions)
+              and not (call_valid and permission in call_permissions)
               and not (camera_valid and permission == "android.permission.CAMERA")]
 if app is None:
     violations.append("missing application")
@@ -51,7 +59,7 @@ package = ROOT / "app/src/main/java/com/charactermemory/android"
 mock_sources = sorted((package / "screens").glob("*.kt")) + sorted(package.glob("Prototype*.kt"))
 network_pattern = re.compile(
     r"^import\s+(?:okhttp3|retrofit2|java\.net|javax\.net|android\.net|android\.media|"
-    r"com\.charactermemory\.android\.(?:data|live|screen|camera))\b|"
+    r"com\.charactermemory\.android\.(?:data|live|screen|camera|audio))\b|"
     r"\b(?:CoreApi|LiveViewModel|HttpURLConnection|Socket)\s*\(|\bURL\s*\(", re.MULTILINE
 )
 for source in mock_sources:

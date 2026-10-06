@@ -24,7 +24,7 @@ internal fun rememberVoiceUiActions(model: LiveViewModel): VoiceUiActions {
     var callTicket by remember { mutableStateOf<Long?>(null) }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         permissionTicket?.let { model.voice.onPermissionResult(it, granted) }
-        callTicket?.let { model.call.permission(it, granted) }
+        callTicket?.let { model.grantCallPermission(it, granted) }
         permissionTicket = null
         callTicket = null
     }
@@ -37,7 +37,7 @@ internal fun rememberVoiceUiActions(model: LiveViewModel): VoiceUiActions {
     }, call = {
         model.requestCall()?.let { next ->
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
-                model.call.permission(next, true)
+                model.grantCallPermission(next, true)
             else { callTicket = next; permission.launch(Manifest.permission.RECORD_AUDIO) }
         }
     })

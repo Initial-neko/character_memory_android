@@ -1,5 +1,7 @@
 package com.charactermemory.android
 
+import com.charactermemory.android.live.LiveAudioPlayback
+
 import android.content.ContentValues
 import android.content.Intent
 import android.graphics.Bitmap
@@ -10,6 +12,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -22,9 +26,12 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
@@ -89,6 +96,7 @@ class LiveApiUiTest {
         val serverTls = HandshakeCertificates.Builder().heldCertificate(certificate).build()
         val clientTls = HandshakeCertificates.Builder().addTrustedCertificate(certificate.certificate).build()
         client = OkHttpClient.Builder().sslSocketFactory(clientTls.sslSocketFactory(), clientTls.trustManager).build()
+        com.charactermemory.android.screen.ScreenShareService.apiFactory = { CoreApi(it, client) }
         // Only the synthetic server certificate is trusted; production TLS remains unchanged.
         coil.Coil.setImageLoader(coil.ImageLoader.Builder(compose.activity).okHttpClient(client)
             .components { add(coil.decode.SvgDecoder.Factory()) }.build())
@@ -139,7 +147,10 @@ class LiveApiUiTest {
 
     @After fun stopSyntheticBackend() {
         if (::dispatcher.isInitialized) dispatcher.releasePostRead.countDown()
-        if (::model.isInitialized) compose.runOnUiThread { model.deactivate() }
+        if (::model.isInitialized) compose.runOnUiThread { model.call.end(); model.deactivate() }
+        compose.runOnUiThread { com.charactermemory.android.screen.ScreenShareService.stop(compose.activity, "TEST_CLEANUP") }
+        compose.waitUntil(5000) { !com.charactermemory.android.screen.ScreenShareStatus.state.value.active }
+        com.charactermemory.android.screen.ScreenShareService.apiFactory = { CoreApi(it) }
         if (::core.isInitialized) core.shutdown()
         if (::media.isInitialized) media.shutdown()
         if (::preferenceName.isInitialized) compose.activity.getSharedPreferences(preferenceName, 0).edit().clear().commit()
@@ -165,6 +176,8 @@ class LiveApiUiTest {
             closeActualIme()
             compose.onNodeWithTag("live-visual-tools").performClick()
         }
+        if (tag in setOf("live-call-camera-toggle", "live-call-screen-toggle", "live-call-screen-preview-toggle", "live-call-notifications") &&
+            compose.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isEmpty()) compose.onNodeWithTag("live-call-more").performClick()
         waitTag(tag)
         // Compose owns the actionable node; dialogs and the IME may own window focus.
         // Tests that require the actual IME assert its platform insets separately.
@@ -191,6 +204,9 @@ class LiveApiUiTest {
     }
     private fun screenshot(name: String, tag: String) {
         waitTag(tag); compose.waitForIdle()
+        screenshotDisplay(name)
+    }
+    private fun screenshotDisplay(name: String) {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.waitForIdleSync(); SystemClock.sleep(450)
         val bitmap = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
@@ -354,9 +370,16 @@ class LiveApiUiTest {
     @Test fun completedSpeechIsReusedAfterLeavingAndReturningToChat() {
         ttsAvailable = true
         tap("live-character-rin")
+        compose.onNodeWithTag("live-message-tts-1").assertDoesNotExist()
+        revealSpeech("1")
+        assertEquals("Long press must not synthesize automatically", 0, ttsRequests.get())
         tap("live-message-tts-1")
         compose.waitUntil(10_000) { compose.onAllNodes(hasTestTag("live-message-tts-1") and hasStateDescription("停止")).fetchSemanticsNodes().isNotEmpty() }
-        compose.runOnUiThread { model.show(LivePage.HOME); model.openCharacter("rin") }
+        compose.runOnUiThread { model.show(LivePage.HOME) }
+        waitTag("live-character-rin")
+        compose.onNodeWithTag("live-message-tts-1").assertDoesNotExist()
+        tap("live-character-rin")
+        revealSpeech("1")
         tap("live-message-tts-1")
         compose.waitUntil(10_000) { compose.onAllNodes(hasTestTag("live-message-tts-1") and hasStateDescription("停止")).fetchSemanticsNodes().isNotEmpty() }
         assertEquals("A completed speech cache hit must not synthesize again", 1, ttsRequests.get())
@@ -365,7 +388,7 @@ class LiveApiUiTest {
 
     @Test fun composerKeepsVoiceAndEmojiInlineAndCallInsideTools() {
         tap("live-character-rin")
-        compose.onNodeWithTag("live-voice-mode").assertIsDisplayed()
+        compose.onNodeWithTag("live-voice-mode").assertDoesNotExist()
         compose.onNodeWithTag("live-asr-start").assertIsDisplayed()
         compose.onNodeWithTag("live-stickers-open").assertIsDisplayed()
         compose.onNodeWithTag("live-call-start").assertDoesNotExist()
@@ -376,6 +399,9 @@ class LiveApiUiTest {
         tap("live-visual-tools")
         compose.onNodeWithTag("live-call-start").assertIsDisplayed()
         compose.onNodeWithTag("live-image-open").assertIsDisplayed()
+        val imageTool = compose.onNodeWithTag("live-image-open").fetchSemanticsNode().boundsInRoot
+        val callTool = compose.onNodeWithTag("live-call-start").fetchSemanticsNode().boundsInRoot
+        assertTrue("Tool cards must have equal dimensions", kotlin.math.abs(imageTool.width - callTool.width) < 1f && kotlin.math.abs(imageTool.height - callTool.height) < 1f)
         screenshot("21-composer-tools", "live-chat")
     }
 
@@ -514,6 +540,7 @@ class LiveApiUiTest {
 
     @Test fun ttsFailureIsVisibleAndExplicitRetryUsesTheSharedPlayer() {
         tap("live-character-rin")
+        revealSpeech("1")
         waitTag("live-message-tts-1")
         tap("live-message-tts-1")
         compose.waitUntil(10_000) {
@@ -572,11 +599,11 @@ class LiveApiUiTest {
     @Test fun visualToolsExposeExplicitCaptureControlsWithoutStartingCapture() {
         tap("live-character-rin")
         tap("live-visual-tools")
-        compose.onNodeWithTag("live-camera-open").assertIsDisplayed().assertIsEnabled()
-        compose.onNodeWithTag("live-screen-share-start").assertIsDisplayed().assertIsEnabled()
+        compose.onNodeWithTag("live-camera-open").assertDoesNotExist()
+        compose.onNodeWithTag("live-screen-share-start").assertDoesNotExist()
         assertFalse(com.charactermemory.android.screen.ScreenShareStatus.state.value.active)
         assertFalse(dispatcher.writes.any { it.first.startsWith("/v1/visual/") })
-        screenshot("19-visual-controls", "live-camera-open")
+        screenshot("19-visual-controls", "live-call-start")
     }
 
     @Test fun mediaAddressPointingAtCoreIsRejectedEvenWhenHealthReturns200() {
@@ -873,7 +900,393 @@ class LiveApiUiTest {
     }
 
 
+    @Test fun cameraPreviewInCallKeepsMuteAndHangupAvailable() {
+        asrResponse = """{"text":"看看我现在的画面"}"""
+        dispatcher.showCallPortrait = true
+        InstrumentationRegistry.getInstrumentation().uiAutomation.grantRuntimePermission(
+            "com.charactermemory.android", android.Manifest.permission.CAMERA)
+        dispatcher.keepCallStreamOpen = true
+        tap("live-character-rin")
+        compose.waitUntil(10000) { model.state.value.streamStatus == "已连接" }
+        compose.runOnUiThread { model.call.permission(requireNotNull(model.requestCall()), true) }
+        compose.waitUntil(10000) { fakeCallRecording != null }
+        val stage = compose.onNodeWithTag("live-call-screen").fetchSemanticsNode().boundsInRoot
+        val art = compose.onNodeWithTag("live-call-character-art").fetchSemanticsNode().boundsInRoot
+        assertTrue("Character must dominate the call page", art.height >= stage.height * .7f)
+        for (tag in listOf("live-call-hangup", "live-call-mic-toggle", "live-call-more")) {
+            val control = compose.onNodeWithTag(tag).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            assertTrue("Bottom call control: $tag", control.center.y > stage.top + stage.height * .7f)
+        }
+        tap("live-call-camera-toggle")
+        compose.onNodeWithTag("live-camera-preview").assertIsDisplayed()
+        val camera = compose.onNodeWithTag("live-camera-preview").fetchSemanticsNode().boundsInRoot
+        assertTrue("Video fills the call stage", camera.width >= stage.width * .95f && camera.height >= stage.height * .95f)
+        compose.onNodeWithTag("live-camera-capture").assertDoesNotExist()
+        compose.onNodeWithTag("live-camera-send").assertDoesNotExist()
+        compose.onNodeWithTag("live-call-character-inset").assertIsDisplayed()
+        compose.waitUntil(20000) { compose.onAllNodesWithTag("live-camera-ready").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("live-call-mic-toggle").assertIsDisplayed().performClick()
+        compose.waitUntil(10000) { model.call.state.value.microphoneMuted }
+        compose.onNodeWithTag("live-call-hangup").assertIsDisplayed()
+        assertFalse(dispatcher.writes.any { it.first.contains("/visual/") })
+        screenshot("23-call-camera", "live-call-screen")
+        compose.waitUntil(10000) { model.latestCallCameraFrame() != null }
+        val firstFrame = requireNotNull(model.latestCallCameraFrame())
+        assertTrue("Actual camera JPEG", firstFrame[0] == 0xff.toByte() && firstFrame[1] == 0xd8.toByte())
+        val cameraStart = model.call.state.value.startedAtMs
+        compose.onNodeWithTag("live-camera-flip").assertIsDisplayed().performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("live-camera-ready").fetchSemanticsNodes().isNotEmpty() }
+        // Sampling is paced by the Compose coroutine clock; advance its retry after lens setup.
+        compose.mainClock.advanceTimeBy(3500)
+        // Speaking carries a current camera image without a second manual visual message.
+        compose.runOnUiThread { fakeCallRecording = null; model.call.setMicrophoneMuted(false) }
+        compose.waitUntil(10000) { fakeCallRecording != null }
+        compose.waitUntil(10000) {
+            compose.mainClock.advanceTimeBy(1000) // The sampling LaunchedEffect uses the Compose clock.
+            model.latestCallCameraFrame() != null
+        }
+        compose.runOnUiThread { requireNotNull(fakeCallRecording).complete(ByteArray(3200)) }
+        compose.waitUntil(10000) { dispatcher.writes.any { it.first == "/v1/visual/direct/messages" } }
+        val visual = dispatcher.writes.single { it.first == "/v1/visual/direct/messages" }.second
+        assertEquals("CAMERA", visual.getAsJsonArray("visual_frames")[0].asJsonObject.text("source"))
+        assertEquals("看看我现在的画面", visual.text("message"))
+        assertEquals(cameraStart, model.call.state.value.startedAtMs)
+        assertFalse(dispatcher.writes.any { it.first == "/v1/chat/messages" })
+        assertFalse(dispatcher.writes.any { it.first == "/v1/visual/direct/observations" })
+        tap("live-call-camera-toggle")
+        compose.waitUntil(10000) { model.latestCallCameraFrame() == null }
+        compose.onNodeWithTag("live-camera-preview").assertDoesNotExist()
+        compose.onNodeWithTag("live-call-character-inset").assertDoesNotExist()
+        tap("live-call-camera-toggle")
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("live-camera-ready").fetchSemanticsNodes().isNotEmpty() }
+        compose.mainClock.advanceTimeBy(3500)
+        compose.waitUntil(10000) { model.latestCallCameraFrame() != null }
+        tap("live-call-hangup")
+        compose.waitUntil(10000) { !model.call.state.value.active && model.latestCallCameraFrame() == null }
+    }
+    @Test fun reopeningStickersRefreshesPcRemovalWithoutDeletingHistory() {
+        tap("live-character-rin")
+        compose.waitUntil(10000) { "stickers" !in model.state.value.busy && "history" !in model.state.value.busy &&
+            model.state.value.messages.isNotEmpty() && model.state.value.stickers.any { it.text("id") == "wave" } }
+        val history = model.state.value.messages.map { it.text("id") }
+        val before = dispatcher.reads.count { it == "/v1/stickers" }
+        dispatcher.stickerRemoved = true
+        tap("live-stickers-open")
+        compose.waitUntil(10000) { dispatcher.reads.count { it == "/v1/stickers" } > before && "stickers" !in model.state.value.busy }
+        assertFalse(model.state.value.stickers.any { it.text("id") == "wave" })
+        assertEquals(history, model.state.value.messages.map { it.text("id") })
+        assertTrue(dispatcher.writes.isEmpty())
+    }
+    @Test fun minimizedExplicitCallHasReturnControlWithoutNewSession() {
+        InstrumentationRegistry.getInstrumentation().uiAutomation.grantRuntimePermission(
+            "com.charactermemory.android", android.Manifest.permission.RECORD_AUDIO)
+        dispatcher.keepCallStreamOpen = true
+        tap("live-character-rin")
+        compose.waitUntil(10000) { model.state.value.streamStatus == "已连接" }
+        compose.runOnUiThread { model.grantCallPermission(requireNotNull(model.requestCall()), true) }
+        compose.waitUntil(10000) { fakeCallRecording != null }
+        val start = model.call.state.value.startedAtMs
+        tap("live-back")
+        assertTrue(model.call.state.value.active)
+        compose.onNodeWithTag("live-call-return").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("live-call-screen").assertIsDisplayed()
+        assertEquals(start, model.call.state.value.startedAtMs)
+        tap("live-call-hangup")
+    }
+    @Test fun notificationHangupReleasesTheSameCallAndRecorder() {
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        automation.grantRuntimePermission("com.charactermemory.android", android.Manifest.permission.RECORD_AUDIO)
+        if (android.os.Build.VERSION.SDK_INT >= 33) automation.grantRuntimePermission(
+            "com.charactermemory.android", android.Manifest.permission.POST_NOTIFICATIONS)
+        dispatcher.keepCallStreamOpen = true
+        tap("live-character-rin")
+        compose.waitUntil(10000) { model.state.value.streamStatus == "已连接" }
+        compose.runOnUiThread { model.grantCallPermission(requireNotNull(model.requestCall()), true) }
+        val manager = compose.activity.getSystemService(android.app.NotificationManager::class.java)
+        val hangup = awaitCallHangupAction(manager)
+        compose.runOnUiThread { hangup.send() }
+        compose.waitUntil(10000) { !model.call.state.value.active && callCancellations.get() > 0 }
+        assertFalse(dispatcher.writes.any { it.first == "/v1/chat/messages" })
+    }
+
+    @Test fun screenShareInCallSurvivesNetworkPauseAndHomeThenHangupReleasesProjection() {
+        dispatcher.showCallPortrait = true
+        InstrumentationRegistry.getInstrumentation().uiAutomation.grantRuntimePermission(
+            "com.charactermemory.android", android.Manifest.permission.RECORD_AUDIO)
+        dispatcher.keepCallStreamOpen = true
+        dispatcher.visualConfigFailures.set(3)
+        tap("live-character-rin")
+        compose.waitUntil(10000) { model.state.value.streamStatus == "已连接" }
+        compose.runOnUiThread { model.grantCallPermission(requireNotNull(model.requestCall()), true) }
+        compose.waitUntil(10000) { fakeCallRecording != null }
+        tap("live-call-mic-toggle")
+        tap("live-call-screen-toggle")
+        screenshot("26-call-share-selector", "live-call-share-confirm")
+        tap("live-call-share-confirm")
+        // Advance Compose's test clock so the counter-triggered launcher runs before native UI polling.
+        compose.waitForIdle()
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        val singleApp = device.wait(androidx.test.uiautomator.Until.findObject(androidx.test.uiautomator.By.text("A single app")), 2000)
+        if (singleApp != null) {
+            singleApp.click()
+            val entireScreen = device.wait(androidx.test.uiautomator.Until.findObject(androidx.test.uiautomator.By.text("Entire screen")), 3000)
+            assertNotNull("System entire-screen choice missing", entireScreen)
+            screenshotDisplay("28-call-system-share-selector")
+            entireScreen!!.click()
+        } else screenshotDisplay("28-call-system-share-selector")
+        val start = device.wait(androidx.test.uiautomator.Until.findObject(androidx.test.uiautomator.By.text(
+            java.util.regex.Pattern.compile("Start now|Start recording|Start|立即开始|开始"))), 5000)
+        assertNotNull("System capture confirmation missing", start)
+        start!!.click()
+        compose.waitUntil(10000) { com.charactermemory.android.screen.ScreenShareStatus.state.value.uploadState == "PAUSED_NETWORK" }
+        assertTrue(com.charactermemory.android.screen.ScreenShareStatus.state.value.active)
+        device.pressHome(); Thread.sleep(1000)
+        assertTrue(model.call.state.value.active)
+        assertTrue(com.charactermemory.android.screen.ScreenShareStatus.state.value.active)
+        device.executeShellCommand("am start -n com.charactermemory.android/.MainActivity")
+        compose.waitUntil(20000) { com.charactermemory.android.screen.ScreenShareStatus.state.value.uploadState == "AUTO_DISABLED" }
+        assertTrue(com.charactermemory.android.screen.ScreenShareStatus.state.value.active)
+        tap("live-call-screen-preview-toggle")
+        waitTag("live-call-screen-preview")
+        screenshot("24-call-screen-shared", "live-call-screen")
+        tap("live-call-more"); tap("live-call-screen-ask")
+        compose.onNodeWithText("完成").performClick()
+        compose.waitUntil(10000) { dispatcher.writes.any { it.first == "/v1/visual/direct/messages" } }
+        assertEquals(1, dispatcher.writes.count { it.first == "/v1/visual/direct/messages" })
+        assertFalse(dispatcher.writes.any { it.first == "/v1/chat/messages" })
+        tap("live-call-hangup")
+        compose.waitUntil(10000) { !com.charactermemory.android.screen.ScreenShareStatus.state.value.active }
+        assertEquals("CALL_HANGUP", com.charactermemory.android.screen.ScreenShareStatus.state.value.stopReason)
+    }
+
+    @Test fun explicitCallRemainsActiveWhenChatUiBackgrounds() {
+        InstrumentationRegistry.getInstrumentation().uiAutomation.grantRuntimePermission(
+            "com.charactermemory.android", android.Manifest.permission.RECORD_AUDIO)
+        dispatcher.keepCallStreamOpen = true
+        tap("live-character-rin")
+        compose.waitUntil(10000) { model.state.value.streamStatus == "已连接" }
+        compose.runOnUiThread { model.grantCallPermission(requireNotNull(model.requestCall()), true) }
+        compose.waitUntil(10000) { fakeCallRecording != null }
+        compose.runOnUiThread { model.deactivate() }
+        assertTrue("Explicit call must outlive the UI foreground", model.call.state.value.active)
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        device.pressHome()
+        Thread.sleep(1000)
+        assertTrue("Actual home navigation must preserve the explicit call", model.call.state.value.active)
+        assertTrue(device.executeShellCommand("dumpsys activity services com.charactermemory.android").contains("CallSessionService"))
+        device.executeShellCommand("am start -n com.charactermemory.android/.MainActivity")
+        compose.runOnUiThread { model.activate(); model.call.end() }
+    }
+
+    @Test fun nativePipKeepsSessionAndMuteActionDoesNotRestoreFullScreen() {
+        dispatcher.showCallPortrait = true
+        InstrumentationRegistry.getInstrumentation().uiAutomation.grantRuntimePermission(
+            "com.charactermemory.android", android.Manifest.permission.RECORD_AUDIO)
+        dispatcher.keepCallStreamOpen = true
+        tap("live-character-rin")
+        compose.waitUntil(10000) { model.state.value.streamStatus == "已连接" }
+        compose.waitUntil(10000) { !model.state.value.avatars["rin"].isNullOrBlank() }
+        compose.waitForIdle()
+        compose.runOnUiThread { model.grantCallPermission(requireNotNull(model.requestCall()), true) }
+        compose.waitUntil(10000) { fakeCallRecording != null }
+        val activity = compose.activity
+        val started = model.call.state.value.startedAtMs
+        tap("live-call-pip")
+        val deadline = SystemClock.uptimeMillis() + 10000
+        while (!activity.isInPictureInPictureMode && SystemClock.uptimeMillis() < deadline) SystemClock.sleep(100)
+        assertTrue("Actual native PiP must open", activity.isInPictureInPictureMode)
+        // The framework flag changes before the native transition callback; draw frames until it arrives.
+        val renderDeadline = SystemClock.uptimeMillis() + 10000
+        while (!activity.isCallPipMode && SystemClock.uptimeMillis() < renderDeadline) {
+            compose.mainClock.advanceTimeBy(100)
+            SystemClock.sleep(100)
+        }
+        assertTrue("Native PiP transition callback must arrive", activity.isCallPipMode)
+        compose.mainClock.advanceTimeBy(1000)
+        SystemClock.sleep(1000)
+        screenshotDisplay("27-call-pip")
+        val actionIntent = Intent(activity, CallPipActionReceiver::class.java)
+            .setAction(CallPipIntent.TOGGLE_MIC)
+            .setData(android.net.Uri.parse("character-memory://call/$started/microphone"))
+        val nativeAction = android.app.PendingIntent.getBroadcast(activity, CallPipIntent.MIC_REQUEST_CODE,
+            actionIntent, android.app.PendingIntent.FLAG_NO_CREATE or android.app.PendingIntent.FLAG_IMMUTABLE)
+        assertNotNull("Use the real registered PiP action", nativeAction)
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        val name = device.wait(androidx.test.uiautomator.Until.findObject(androidx.test.uiautomator.By.text("Rin")), 5000)
+        assertNotNull("Native PiP character name must be visible", name)
+        requireNotNull(name).click()
+        val mute = device.wait(androidx.test.uiautomator.Until.findObject(
+            androidx.test.uiautomator.By.desc("静音通话麦克风")), 5000)
+        assertNotNull("System PiP menu must expose microphone action", mute)
+        assertNotNull("System PiP menu must expose hangup action", device.findObject(
+            androidx.test.uiautomator.By.desc("结束与Rin的通话")))
+        screenshotDisplay("29-call-pip-actions")
+        requireNotNull(mute).click()
+        val muteDeadline = SystemClock.uptimeMillis() + 10000
+        while (!model.call.state.value.microphoneMuted && SystemClock.uptimeMillis() < muteDeadline) SystemClock.sleep(100)
+        assertTrue(model.call.state.value.microphoneMuted)
+        assertTrue("Muting must remain in native PiP", activity.isInPictureInPictureMode)
+        assertEquals(started, model.call.state.value.startedAtMs)
+        UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+            .executeShellCommand("am start -n com.charactermemory.android/.MainActivity --activity-single-top")
+        compose.waitUntil(10000) { !activity.isInPictureInPictureMode }
+        compose.onNodeWithTag("live-call-screen").assertIsDisplayed()
+        assertEquals(started, model.call.state.value.startedAtMs)
+        assertTrue(model.call.state.value.microphoneMuted)
+        tap("live-call-hangup")
+    }
+
+    @Test fun previousNativeNotificationCannotHangUpRedialedCall() {
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        automation.grantRuntimePermission("com.charactermemory.android", android.Manifest.permission.RECORD_AUDIO)
+        if (android.os.Build.VERSION.SDK_INT >= 33) automation.grantRuntimePermission("com.charactermemory.android", android.Manifest.permission.POST_NOTIFICATIONS)
+        dispatcher.keepCallStreamOpen = true
+        tap("live-character-rin")
+        compose.waitUntil(10000) { model.state.value.streamStatus == "已连接" }
+        compose.runOnUiThread { model.grantCallPermission(requireNotNull(model.requestCall()), true) }
+        val manager = compose.activity.getSystemService(android.app.NotificationManager::class.java)
+        val oldHangup = awaitCallHangupAction(manager)
+        val oldStarted = model.call.state.value.startedAtMs
+        tap("live-call-hangup")
+        var ticket: Long? = null
+        compose.waitUntil(10000) {
+            compose.runOnUiThread { if (ticket == null) ticket = model.requestCall() }
+            ticket != null
+        }
+        compose.runOnUiThread { model.grantCallPermission(requireNotNull(ticket), true) }
+        compose.waitUntil(10000) { com.charactermemory.android.audio.CallSessionService.owns(model.call) }
+        val currentStarted = model.call.state.value.startedAtMs
+        assertNotEquals(oldStarted, currentStarted)
+        oldHangup.send()
+        SystemClock.sleep(500)
+        assertTrue("Old actual notification must not hang up the new call", model.call.state.value.active)
+        assertEquals(currentStarted, model.call.state.value.startedAtMs)
+        assertTrue(com.charactermemory.android.audio.CallSessionService.owns(model.call))
+        tap("live-call-hangup")
+    }
+
+    @Test fun callConnectingCanCancelWithoutSendingAnyMessage() {
+        dispatcher.showCallPortrait = true
+        dispatcher.keepCallStreamOpen = true
+        tap("live-character-rin")
+        compose.waitUntil(10000) { model.state.value.streamStatus == "已连接" }
+        compose.mainClock.autoAdvance = false
+        try {
+            compose.runOnUiThread { assertNotNull(model.requestCall()) }
+            compose.mainClock.advanceTimeBy(32)
+            val wave = compose.onNodeWithTag("live-call-connecting-wave")
+            val before = wave.captureToImage().let { image ->
+                IntArray(image.width * image.height).also { image.readPixels(it) }
+            }
+            compose.mainClock.advanceTimeBy(350)
+            val after = wave.captureToImage().let { image ->
+                IntArray(image.width * image.height).also { image.readPixels(it) }
+            }
+            val foreground = com.charactermemory.android.live.LivePurple.toArgb()
+            val beforeCount = before.count { it == foreground }
+            val afterCount = after.count { it == foreground }
+            assertTrue("Waiting bars must be rendered", beforeCount > 0)
+            assertTrue("Waiting bar height must actually animate", afterCount > beforeCount)
+            android.util.Log.i("CallVisualAcceptance", "waiting_wave_foreground_pixels=$beforeCount->$afterCount")
+        } finally { compose.mainClock.autoAdvance = true }
+        compose.onNodeWithTag("live-call-connecting").assertIsDisplayed()
+        compose.onNodeWithTag("live-call-connecting-avatar").assertIsDisplayed()
+        compose.onNodeWithTag("live-call-connecting-wave").assertIsDisplayed()
+        compose.onNodeWithTag("live-call-camera-toggle").assertDoesNotExist()
+        compose.onNodeWithTag("live-call-screen-toggle").assertDoesNotExist()
+        compose.onNodeWithTag("live-call-subtitles").assertDoesNotExist()
+        screenshot("25-call-connecting", "live-call-screen")
+        tap("live-call-hangup")
+        assertFalse(model.call.state.value.active)
+        assertFalse(dispatcher.writes.any { it.first == "/v1/chat/messages" || it.first == "/v1/visual/direct/messages" })
+    }
+
+    @Test fun callSurfaceShowsRealControlsAndMuteDoesNotHangup() {
+        dispatcher.showCallPortrait = true
+        dispatcher.keepCallStreamOpen = true
+        tap("live-character-rin")
+        compose.waitUntil(10000) { model.state.value.streamStatus == "已连接" }
+        compose.runOnUiThread { model.call.permission(requireNotNull(model.requestCall()), true) }
+        compose.waitUntil(10000) { fakeCallRecording != null }
+        compose.onNodeWithTag("live-call-screen").assertIsDisplayed()
+        compose.onNodeWithTag("live-chat-input").assertDoesNotExist()
+        compose.runOnUiThread {
+            com.charactermemory.android.screen.ScreenShareStatus.state.value =
+                com.charactermemory.android.screen.ScreenShareSnapshot(label = "已停止共享", stopReason = "USER_STOP")
+        }
+        tap("live-call-mic-toggle")
+        compose.waitUntil(10000) { callCancellations.get() > 0 }
+        assertTrue(model.call.state.value.active)
+        compose.onNodeWithTag("live-call-mic-toggle").assertIsDisplayed()
+        tap("live-call-more")
+        compose.onNodeWithTag("live-call-camera-toggle").assertIsDisplayed()
+        compose.onNodeWithTag("live-call-screen-toggle").assertIsDisplayed()
+        compose.onNodeWithText("完成").performClick()
+        assertFalse(dispatcher.writes.any { it.first == "/v1/chat/messages" })
+        compose.onNodeWithTag("live-screen-share-status").assertDoesNotExist()
+        screenshot("22-call-muted", "live-call-screen")
+        tap("live-call-hangup")
+        compose.waitUntil(10000) { !model.call.state.value.active }
+    }
+
+    @Test fun callStageReferenceScreensPreserveOneSession() {
+        dispatcher.showCallPortrait = true
+        dispatcher.keepCallStreamOpen = true
+        tap("live-character-rin")
+        compose.waitUntil(10000) { model.state.value.streamStatus == "已连接" }
+        InstrumentationRegistry.getInstrumentation().uiAutomation.grantRuntimePermission(
+            "com.charactermemory.android", android.Manifest.permission.RECORD_AUDIO)
+        compose.runOnUiThread { model.grantCallPermission(requireNotNull(model.requestCall()), true) }
+        compose.waitUntil(10000) { model.call.state.value.phase == "listening" && fakeCallRecording != null }
+        compose.waitUntil(10000) { !model.state.value.avatars["rin"].isNullOrBlank() }
+        Thread.sleep(1500) // Allow Coil to decode the local fixture before visual capture.
+        val started = model.call.state.value.startedAtMs
+        val writesBefore = dispatcher.writes.size
+        screenshot("30-call-reference-normal", "live-call-screen")
+        tap("live-call-more"); tap("live-call-live2d-mode")
+        compose.onNodeWithTag("live-call-live2d-placeholder").assertIsDisplayed()
+        screenshot("31-call-reference-live2d", "live-call-screen")
+        assertEquals(started, model.call.state.value.startedAtMs)
+        tap("live-back"); tap("live-call-return")
+        compose.onNodeWithTag("live-call-live2d-placeholder").assertIsDisplayed()
+        assertEquals(started, model.call.state.value.startedAtMs)
+        tap("live-call-history"); tap("live-call-history-close")
+        assertEquals(started, model.call.state.value.startedAtMs)
+        // UI reference fixture: not a hardware MediaProjection pass.
+        val bitmap = Bitmap.createBitmap(720, 1280, Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bitmap)
+        canvas.drawColor(android.graphics.Color.rgb(17, 27, 45))
+        val paint = android.graphics.Paint().apply { color = android.graphics.Color.rgb(154, 180, 240); textSize = 44f }
+        canvas.drawText("Character Memory", 48f, 120f, paint)
+        canvas.drawText("产品设计思路", 48f, 220f, paint)
+        repeat(10) { i -> paint.color = android.graphics.Color.rgb(43 + i * 2, 62 + i * 2, 98); canvas.drawRoundRect(48f, 300f + i * 70f, 640f, 342f + i * 70f, 12f, 12f, paint) }
+        val bytes = java.io.ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it) }.toByteArray()
+        compose.runOnUiThread {
+            val target = requireNotNull(model.state.value.target)
+            com.charactermemory.android.screen.ScreenShareStatus.state.value = com.charactermemory.android.screen.ScreenShareSnapshot(
+                active = true, characterId = target.id, conversationId = target.conversationId,
+                coreUrl = model.state.value.config.coreUrl, latestPreviewJpeg = bytes)
+        }
+        compose.onNodeWithTag("live-call-character-inset").assertIsDisplayed()
+        screenshot("32-call-reference-share", "live-call-screen")
+        assertEquals(started, model.call.state.value.startedAtMs)
+        assertEquals(writesBefore, dispatcher.writes.size)
+        compose.runOnUiThread { com.charactermemory.android.screen.ScreenShareStatus.state.value = com.charactermemory.android.screen.ScreenShareSnapshot() }
+        tap("live-call-more"); tap("live-call-avatar-mode")
+        assertEquals(started, model.call.state.value.startedAtMs)
+        tap("live-call-speaker-toggle")
+        assertFalse(LiveAudioPlayback.callSpeakerEnabled)
+        tap("live-back"); tap("live-call-return")
+        assertFalse(LiveAudioPlayback.callSpeakerEnabled)
+        assertEquals(started, model.call.state.value.startedAtMs)
+        tap("live-call-speaker-toggle")
+        assertTrue(LiveAudioPlayback.callSpeakerEnabled)
+        tap("live-call-hangup")
+        compose.waitUntil(10000) { !model.call.state.value.active }
+    }
+
     @Test fun callUsesSystemPermissionAndHangupReleasesCaptureWithoutSendingSilence() {
+        dispatcher.showCallPortrait = true
         dispatcher.keepCallStreamOpen = true
         tap("live-character-rin")
         compose.waitUntil(10000) { model.state.value.streamStatus == "已连接" }
@@ -897,6 +1310,7 @@ class LiveApiUiTest {
     }
 
     @Test fun callTranscriptionWritesOnceThenPlaysCorrectSpeakerAndHangupStopsAudio() {
+        dispatcher.showCallPortrait = true
         dispatcher.keepCallStreamOpen = true; ttsAvailable = true
         asrResponse = """{"text":"fixture call transcript"}"""
         tap("live-character-rin")
@@ -914,6 +1328,21 @@ class LiveApiUiTest {
         assertEquals(1, dispatcher.writes.count { it.first == "/v1/chat/messages" })
         assertEquals(1, asrRequests.get())
         compose.onNodeWithTag("live-call-hangup").assertDoesNotExist()
+    }
+
+    private fun awaitCallHangupAction(manager: android.app.NotificationManager): android.app.PendingIntent {
+        var action: android.app.PendingIntent? = null
+        compose.waitUntil(10000) {
+            action = manager.activeNotifications.firstOrNull { it.id == 4109 }?.notification
+                ?.actions?.singleOrNull { it.title.toString() == "挂断" }?.actionIntent
+            action != null
+        }
+        return requireNotNull(action)
+    }
+
+    private fun revealSpeech(id: String) {
+        waitTag("live-message-bubble-$id")
+        compose.onNodeWithTag("live-message-bubble-$id").performTouchInput { longClick() }
     }
 
     private fun assertOpenedNotificationPost() {
