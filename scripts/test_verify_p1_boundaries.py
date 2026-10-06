@@ -80,6 +80,19 @@ class BoundaryTest(unittest.TestCase):
         (self.package / "PrototypeModels.kt").write_text("import com.charactermemory.android.screen.ScreenShareService", encoding="utf-8")
         self.assertEqual(1, self.run_check()[0])
 
+    def test_call_foreground_permission_requires_private_typed_service(self):
+        self.write_manifest("FOREGROUND_SERVICE_MICROPHONE")
+        self.assertEqual(1, self.run_check()[0])
+        (self.package / "audio").mkdir()
+        (self.package / "audio/CallSessionService.kt").write_text("class CallSessionService", encoding="utf-8")
+        self.manifest.write_text(self.manifest.read_text().replace(
+            '<application android:usesCleartextTraffic="false"/>',
+            '<application android:usesCleartextTraffic="false"><service android:name=".audio.CallSessionService" '
+            'android:exported="false" android:foregroundServiceType="microphone|mediaPlayback"/></application>'), encoding="utf-8")
+        self.assertEqual(0, self.run_check()[0])
+        self.manifest.write_text(self.manifest.read_text().replace('android:exported="false"', 'android:exported="true"'), encoding="utf-8")
+        self.assertEqual(1, self.run_check()[0])
+
     def test_network_import_in_mock_prohibited(self):
         (self.package / "PrototypeModels.kt").write_text("import okhttp3.OkHttpClient", encoding="utf-8")
         code, evidence = self.run_check()

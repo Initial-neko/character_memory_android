@@ -15,7 +15,9 @@ import java.util.concurrent.atomic.AtomicInteger
 /** Synthetic payloads mirror Core508c6f0 route schemas, not private user data. */
 internal class P2FixtureDispatcher : Dispatcher() {
     @Volatile var historyDelayMs = 0L
+    @Volatile var showCallPortrait = true
     @Volatile var brokenSticker = false
+    @Volatile var stickerRemoved = false
     val writes = CopyOnWriteArrayList<Pair<String, JsonObject>>()
     val reads = CopyOnWriteArrayList<String>()
     val requests = CopyOnWriteArrayList<String>()
@@ -33,6 +35,7 @@ internal class P2FixtureDispatcher : Dispatcher() {
     @Volatile var holdSpaceFeedRead = false
     @Volatile var usageStatus = 200
     @Volatile var keepCallStreamOpen = false
+    val visualConfigFailures = AtomicInteger(0)
     @Volatile var usageResponseBody: String? = null
     val postReadStarted = CountDownLatch(1)
     val releasePostRead = CountDownLatch(1)
@@ -47,6 +50,10 @@ internal class P2FixtureDispatcher : Dispatcher() {
         val path = request.requestUrl?.encodedPath.orEmpty()
         requests.add("${request.method} ${request.path}")
         if (coreOffline) return json("{\"detail\":\"fixture offline\"}", 503)
+        if (path == "/v1/visual/periodic/config") {
+            if (visualConfigFailures.getAndDecrement() > 0) return json("{\"detail\":\"temporary network failure\"}", 503)
+            return json("{\"enabled\":false,\"scope\":\"DIRECT_DISPLAY_ONLY\",\"interval_seconds\":30}")
+        }
         if (request.method == "POST") {
             val body = JsonParser.parseString(request.body.readUtf8()).asJsonObject
             writes.add(path to body)
@@ -100,7 +107,8 @@ internal class P2FixtureDispatcher : Dispatcher() {
                 else json("""{"characters":[{"id":"rin","name":"Rin","identity":"摄影师","description":"Fixture character"},{"id":"lex","name":"Lex","identity":"工程师"}],"soft_limit":10,"active_limit":20,"active_total":2,"overflow_count":0}""")
             "/v1/characters/summaries" -> json("""{"characters":[{"id":"rin","latest_message":{"id":1,"role":"assistant","content":"fixture opening","preview":"fixture opening","event_time":"2026-10-02T10:00:00+08:00"},"latest_assistant_message_id":1}]}""")
             "/v1/groups" -> json("""{"groups":[{"id":"g1","name":"Fixture Group","status":"ACTIVE","member_ids":["rin","lex"],"members":[{"id":"rin","name":"Rin"},{"id":"lex","name":"Lex"}]}]}""")
-            "/v1/stickers" -> json("""{"scope":"global","source":"fixture","stickers":[{"id":"wave","label":"挥手","pack_id":"default","pack_name":"内置","url":"/v1/stickers/wave/asset"},{"id":"sparkle","label":"星光","pack_id":"custom","pack_name":"自定义","url":"/v1/stickers/sparkle/asset"}]}""")
+            "/v1/stickers" -> if (stickerRemoved) json("""{"scope":"global","stickers":[{"id":"sparkle","label":"星光","pack_id":"custom","pack_name":"自定义","url":"/v1/stickers/sparkle/asset"}]}""")
+                else json("""{"scope":"global","source":"fixture","stickers":[{"id":"wave","label":"挥手","pack_id":"default","pack_name":"内置","url":"/v1/stickers/wave/asset"},{"id":"sparkle","label":"星光","pack_id":"custom","pack_name":"自定义","url":"/v1/stickers/sparkle/asset"}]}""")
             "/v1/stickers/sparkle/asset" -> MockResponse().setHeader("Content-Type", "image/svg+xml")
                 .setBody("""<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160"><circle cx="80" cy="80" r="64" fill="#ffc7cb"/><path d="M40 80 Q80 130 120 80" fill="none" stroke="#5b4b47" stroke-width="6"/></svg>""")
             "/v1/stickers/wave/asset" -> if (brokenSticker) MockResponse().setHeader("Content-Type", "image/png").setBody("invalid PNG") else MockResponse()
@@ -111,7 +119,11 @@ internal class P2FixtureDispatcher : Dispatcher() {
             "/v1/llm/usage" -> json(usageResponseBody ?: """{"window_hours":1,"summary":{"requests":2,"logical_calls":1,"input_tokens":320,"output_tokens":90,"total_tokens":410,"token_known_requests":2,"retried_logical_calls":0,"errors":0,"avg_latency_ms":12.5,"input_chars":80,"output_chars":50,"token_coverage":1.0},"by_feature":[{"feature":"CHAT","purpose":"DIRECT_REACTION","requests":2,"logical_calls":1,"input_tokens":320,"output_tokens":90,"total_tokens":410,"token_known_requests":2,"retried_logical_calls":0,"errors":0,"avg_latency_ms":12.5,"input_chars":80,"output_chars":50,"input_char_share":1.0,"requests_per_logical_call":2.0,"token_coverage":1.0}],"by_model":[{"model":"fixture-model","requests":2,"logical_calls":1,"input_tokens":320,"output_tokens":90,"total_tokens":410,"token_known_requests":2,"retried_logical_calls":0,"errors":0,"avg_latency_ms":12.5,"input_chars":80,"output_chars":50,"input_char_share":1.0,"requests_per_logical_call":2.0,"token_coverage":1.0}],"recent":[{"id":8,"created_at":"2026-10-02T02:00:00+00:00","provider":"example.test","model":"fixture-model","feature":"CHAT","purpose":"DIRECT_REACTION","character_id":"rin","attempt":1,"status":"SUCCESS","input_tokens":320,"output_tokens":90,"total_tokens":410,"duration_ms":12.5,"usage_source":"PROVIDER","error_type":"","request_id":"fixture-8"}]}""", usageStatus)
             "/v1/space/notifications" -> if (notificationRead.get()) json("""{"notifications":[],"unread_count":0,"max_items":100,"background_push":false}""")
                 else json("""{"notifications":[${notification()}],"unread_count":1,"max_items":100,"background_push":false}""")
-            "/v1/characters/rin/avatar", "/v1/characters/lex/avatar" -> json("""{"avatar_url":""}""")
+            "/v1/characters/rin/avatar", "/v1/characters/lex/avatar" -> json(if (showCallPortrait)
+                """{"avatar_url":"/fixture/call-portrait.png"}""" else """{"avatar_url":""}""")
+            "/fixture/call-portrait.png" -> MockResponse().setHeader("Content-Type", "image/png")
+                .setBody(Buffer().write(androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+                    .targetContext.resources.openRawResource(R.drawable.ic_launcher_portrait).use { it.readBytes() }))
             "/v1/chat/history-page", "/v1/groups/g1/history" -> {
                 val accepted = if (sent.get()) """,{"id":10,"role":"user","actor_type":"USER","actor_name":"我","content":"fixture send","event_time":"2026-10-02T10:01:00+08:00"}""" else ""
                 json("""{"character_id":"rin","group":{"id":"g1","name":"Fixture Group","member_ids":["rin","lex"]},"messages":[{"id":1,"role":"assistant","actor_type":"CHARACTER","actor_id":"rin","actor_name":"Rin","content":"fixture opening","event_time":"2026-10-02T10:00:00+08:00"}$accepted],"has_more":false,"next_before_id":null}""").setBodyDelay(historyDelayMs, TimeUnit.MILLISECONDS)

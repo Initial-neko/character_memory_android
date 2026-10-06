@@ -47,7 +47,7 @@ app/src/main/java/.../
     call/         turn queue, ASR/TTS orchestration and controls
     settings/     network/media/theme/notifications
   media/
-    camera/       Camera2 foreground preview / bounded confirmed frame
+    camera/       Camera2 foreground preview / bounded recent call frame
     screen/       MediaProjection + foreground service
     voice/        AudioRecord, playback, focus
     visual/       bounded keyframe selection / local diff
@@ -58,6 +58,8 @@ app/src/main/java/.../
 ~~~
 
 Strict ownership: MediaCapture can produce Frame objects but cannot choose character/memory policies. CallController chooses target and invokes Core. No native UI component calls a private Python module.
+
+Call video uses a full-stage native Camera2 preview with a small character inset. The camera updates one bounded in-memory JPEG every three seconds; an actual spoken turn attaches a recent (at most ten seconds old) frame via the existing visual message route. Opening video alone does not create chat messages. Closing video, changing the visual source, stopping the camera UI or ending the call invalidates the cache. Core periodic observations remain DISPLAY-only; no CAMERA periodic endpoint is assumed. Ordinary chat keeps explicit single-frame confirmation. See [Live2D investigation](LIVE2D_INTEGRATION_RESEARCH.md) for a proposed future character rendering layer.
 
 ## 3. Core and Media network
 
@@ -129,3 +131,5 @@ Text chat continues when Media Runtime is down; media control indicates degradat
 V1 surfaces: Chat list, Direct Chat, one-click Character, one-click Ensemble, Voice/Video Call, Space Feed, basic Settings. AI image generator appears in the chat composer. PC-only Dev/TTS Workbench/Secrets are not Android destinations.
 
 V2 avatar (Live2D/animated/3D) belongs exclusively in the **presentation layer**. Use speaker/playing/idle/capture states already emitted by CallController and introduce animation adapters later; don't add a second personality engine.
+
+`live/CallStage.kt` resolves Avatar / Live2D / Video / ScreenShare independently of the call owner. The native call screen uses a mobile portrait layout, bottom translucent subtitles, and on-demand history/controls dialogs. Shared frames remain the main stage with the character inset at the upper right, following the Android reference. Display selection never requests a new voice session or projection permission. Android Live2D currently displays the existing static avatar over a room background; `CallCharacterRenderer.setCharacterState/playAction/setExpression` are no-op extension points, with no SDK dependency. The speaker control mutes call playback only and preserves its state when the call screen is minimized.

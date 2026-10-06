@@ -4,6 +4,42 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CallTurnQueueTest {
+    @Test fun confirmedVisualWaitsForTextReceiptAndPlaybackBeforeOneWrite() {
+        val queue = CallTurnQueue(); queue.start(); queue.transcript("text"); queue.accepted("1")
+        val method = queue.javaClass.methods.firstOrNull { it.name == "visual" }
+        assertNotNull("Confirmed frames must use the serialized input queue", method)
+        @Suppress("UNCHECKED_CAST")
+        val queued = method!!.invoke(queue, "look", "{\"source\":\"CAMERA\"}") as List<CallEffect>
+        assertTrue(queued.isEmpty()); assertEquals(1, queue.pendingCount)
+        val effect = queue.completed("1").single()
+        assertEquals("look", (effect as CallEffect.Send).text)
+        assertEquals("{\"source\":\"CAMERA\"}", effect.javaClass.getMethod("getVisualFrame").invoke(effect))
+        assertTrue(queue.completed("1").isEmpty())
+    }
+    @Test fun visualObservationReplyUsesOnePlayerWithoutCompletingTextTurn() {
+        val queue = CallTurnQueue(); queue.start(); queue.transcript("text"); queue.accepted("text-1")
+        assertTrue(queue.reply("screen-r", "screen-1", "screen response", "alice").isEmpty())
+        assertEquals(listOf(CallEffect.Speak("screen-r", "screen response", "alice")), external(queue, "screen-1"))
+        queue.completed("screen-1")
+        assertTrue(queue.awaitingReaction)
+        assertTrue(queue.reply("text-r", "text-1", "text response", "alice").isEmpty())
+        assertEquals(listOf(CallEffect.Speak("text-r", "text response", "alice")), queue.played("screen-r"))
+        queue.completed("text-1"); queue.played("text-r")
+        assertFalse(queue.waiting)
+        assertTrue(external(queue, "screen-1").isEmpty())
+    }
+    @Test fun visualReplyBeforeReceiptIsRetainedWhileMicrophoneIsMutedAndIdle() {
+        val queue = CallTurnQueue(); queue.start(); queue.discardPendingInput()
+        queue.reply("r", "camera-1", "camera response", "alice")
+        assertEquals(listOf(CallEffect.Speak("r", "camera response", "alice")), external(queue, "camera-1"))
+        queue.end(); assertTrue(external(queue, "late").isEmpty())
+    }
+    private fun external(queue: CallTurnQueue, key: String): List<CallEffect> {
+        val method = queue.javaClass.methods.firstOrNull { it.name == "externalAccepted" }
+        assertNotNull("Visual receipt must enter the shared playback queue", method)
+        @Suppress("UNCHECKED_CAST")
+        return method!!.invoke(queue, key) as List<CallEffect>
+    }
     @Test fun speechDuringReplyWaitsForBothCompletionAndPlayback() {
         val queue = CallTurnQueue()
         queue.start()

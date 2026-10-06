@@ -169,6 +169,13 @@ class PrototypeUiTest {
         dismissIme()
         screenshot("08-imagegen-draft", "image-preview-dialog")
         compose.onNodeWithTag("image-preview-close").performClick()
+        // Closing the dialog returns IME ownership to the activity. Insets can
+        // still report the outgoing keyboard for a frame, so the call shortcut
+        // (hidden while IME is visible) must be awaited before tapping it.
+        dismissIme()
+        compose.waitUntil(5_000) {
+            compose.onAllNodes(hasTestTag("chat-open-call")).fetchSemanticsNodes().size == 1
+        }
         compose.onNodeWithTag("chat-open-call").performClick()
         compose.onNodeWithTag("screen-call").assertExists()
         screenshot("05-call-mock", "screen-call")

@@ -12,8 +12,8 @@ android {
         applicationId = "com.charactermemory.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "0.3.0-v1"
+        versionCode = 15
+        versionName = "0.3.6-chat-ui-preview"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

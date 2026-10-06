@@ -2,6 +2,7 @@ package com.charactermemory.android.live
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -49,8 +50,13 @@ internal fun LiveAvatar(name: String, path: String, model: LiveViewModel, size: 
 internal fun PersistedVoiceMessageContent(message: JsonObject, assetUrl: String, playbackOwner: String, tag: String) {
     val presentation = persistedVoicePresentation(message)
     val content = message.text("content")
-    if (content.isNotBlank()) Text(content, color = LivePale, fontSize = 15.sp, lineHeight = 23.sp,
-        modifier = Modifier.testTag("$tag-content"))
+    if (!presentation.canPlay || assetUrl.isBlank()) LiveVoiceBar(
+        when (presentation.status) {
+            PersistedVoiceStatus.PENDING -> "生成中"
+            PersistedVoiceStatus.FAILED -> "不可用"
+            else -> "语音"
+        }, if (presentation.status == PersistedVoiceStatus.PENDING) "语音生成中" else "语音不可用",
+        "$tag-bar", false)
     when (presentation.status) {
         PersistedVoiceStatus.PENDING -> Text("语音生成中", color = LiveMuted, fontSize = 12.sp,
             modifier = Modifier.testTag("$tag-status"))
@@ -59,10 +65,8 @@ internal fun PersistedVoiceMessageContent(message: JsonObject, assetUrl: String,
                 Text("语音资源不可用", color = LiveMuted, fontSize = 12.sp,
                     modifier = Modifier.testTag("$tag-status"))
             } else {
-                val duration = presentation.durationMs?.let { " · ${"%.1f".format(Locale.ROOT, it / 1000.0)} 秒" }.orEmpty()
-                Text("语音已就绪$duration", color = LiveMuted, fontSize = 12.sp,
-                    modifier = Modifier.testTag("$tag-status"))
-                LiveAudioPlayerButton(assetUrl, "播放语音", "$tag-play", playbackOwner)
+                val duration = presentation.durationMs?.let { "${"%.1f".format(Locale.ROOT, it / 1000.0)}″" } ?: "语音"
+                LiveAudioPlayerButton(assetUrl, "播放语音", "$tag-play", playbackOwner, duration)
             }
         }
         PersistedVoiceStatus.FAILED -> {
@@ -72,6 +76,8 @@ internal fun PersistedVoiceMessageContent(message: JsonObject, assetUrl: String,
         PersistedVoiceStatus.UNKNOWN -> Text("语音状态未知", color = LiveMuted, fontSize = 12.sp,
             modifier = Modifier.testTag("$tag-status"))
     }
+    if (content.isNotBlank()) Text(content, color = LivePale, fontSize = 13.sp, lineHeight = 20.sp,
+        modifier = Modifier.testTag("$tag-content"))
 }
 
 @Composable
@@ -82,7 +88,6 @@ internal fun LiveChat(state: LiveState, model: LiveViewModel) {
     val voiceActions = rememberVoiceUiActions(model)
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val focus = androidx.compose.ui.platform.LocalFocusManager.current
-    var voiceMode by rememberSaveable(target.id) { mutableStateOf(false) }
     val canRecord = !callState.active && callState.phase == "idle" && state.config.mediaUrl.isNotBlank() &&
         voiceState.phase in setOf(com.charactermemory.android.audio.VoiceCoordinatorPhase.IDLE, com.charactermemory.android.audio.VoiceCoordinatorPhase.ERROR)
     var showStickers by rememberSaveable(target.id) { mutableStateOf(false) }
@@ -101,6 +106,13 @@ internal fun LiveChat(state: LiveState, model: LiveViewModel) {
     val list = rememberLazyListState()
     var lastCount by remember(target.id) { mutableIntStateOf(0) }
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    LaunchedEffect(callState.active) {
+        if (callState.active) { showTools = false; showStickers = false; focus.clearFocus(); keyboard?.hide() }
+    }
+    if (callState.active) {
+        LiveCallScreen(state, model)
+        return
+    }
     LaunchedEffect(imeVisible) { if (imeVisible) { showStickers = false; showTools = false } }
     LaunchedEffect(state.messages.size) {
         if (state.messages.size > lastCount && (lastCount == 0 || list.layoutInfo.visibleItemsInfo.lastOrNull()?.index == lastCount)) {
@@ -222,23 +234,16 @@ internal fun LiveChat(state: LiveState, model: LiveViewModel) {
             }
         }
         Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            LiveIconAction(if (voiceMode) LiveSymbol.KEYBOARD else LiveSymbol.MIC,
-                if (voiceMode) "切换键盘输入" else "切换语音输入", "live-voice-mode", !callState.active) {
-                voiceMode = !voiceMode; showTools = false; showStickers = false
-                focus.clearFocus(); keyboard?.hide()
-            }
-            if (voiceMode) OutlinedButton(onClick = voiceActions.dictation, enabled = canRecord,
-                modifier = Modifier.weight(1f).heightIn(min = 56.dp).testTag("live-asr-start")) { Text("点击说话") }
-            else OutlinedTextField(state.composeText, model::editText, enabled = !callState.active,
+            OutlinedTextField(state.composeText, model::editText, enabled = !callState.active,
                 placeholder = { Text("输入消息…", fontSize = 14.sp) }, maxLines = 4,
                 trailingIcon = { LiveIconAction(LiveSymbol.MIC, "语音转文字", "live-asr-start", canRecord, voiceActions.dictation) },
                 shape = RoundedCornerShape(17.dp), textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 23.sp),
                 modifier = Modifier.weight(1f).testTag("live-chat-input"))
             LiveIconAction(LiveSymbol.STICKER, "表情", "live-stickers-open", !callState.active) {
                 focus.clearFocus(); keyboard?.hide(); showTools = false; showStickers = !showStickers
-                if (showStickers) model.loadStickers()
+                if (showStickers) model.loadStickers(force = true)
             }
-            if (state.composeText.isNotBlank() && !voiceMode)
+            if (state.composeText.isNotBlank())
                 LiveIconAction(LiveSymbol.SEND, if ("send" in state.busy) "正在发送" else "发送消息", "live-chat-send",
                     !callState.active && "send" !in state.busy) { model.send() }
             else LiveIconAction(LiveSymbol.TOOLS, "展开聊天工具", "live-visual-tools", !callState.active) {
@@ -248,16 +253,12 @@ internal fun LiveChat(state: LiveState, model: LiveViewModel) {
         if (!imeVisible && showTools) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 LiveQuickAction(LiveSymbol.SPARKLE, "生成图片", Modifier.weight(1f), "live-image-open") { model.show(LivePage.IMAGE) }
-                LivePanelCard(Modifier.weight(1f)) {
-                    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                        LiveIconAction(LiveSymbol.PHONE, "语音通话", "live-call-start",
-                            canRecord && state.streamStatus == "已连接" && "send" !in state.busy, voiceActions.call)
-                        Text("语音通话", fontSize = 12.sp)
-                    }
-                }
+                LiveQuickAction(LiveSymbol.PHONE, "语音通话", Modifier.weight(1f), "live-call-start",
+                    canRecord && state.streamStatus == "已连接" && "send" !in state.busy, voiceActions.call)
             }
-            com.charactermemory.android.camera.CameraControls(state, model)
-            com.charactermemory.android.screen.ScreenShareControls(state, model)
+            Text("视频与屏幕共享可在通话中开启", color = LiveMuted, fontSize = 12.sp)
+            val capture by com.charactermemory.android.screen.ScreenShareStatus.state.collectAsState()
+            if (capture.active) com.charactermemory.android.screen.ScreenShareControls(state, model)
         }
         if (callState.active || callState.error != null || voiceState.phase != com.charactermemory.android.audio.VoiceCoordinatorPhase.IDLE)
             LiveVoiceInput(model)
@@ -265,16 +266,18 @@ internal fun LiveChat(state: LiveState, model: LiveViewModel) {
 }
 
 @Composable
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 private fun LiveMessageBubble(message: JsonObject, author: String, characterId: String, state: LiveState, model: LiveViewModel) {
     val outbound = message.text("role") == "user"
     val id = message.text("id")
-    val voiceMessage = message.text("action") == "VOICE_MESSAGE"
+    val voiceMessage = message.text("action").uppercase(Locale.ROOT) == "VOICE_MESSAGE"
     val voice = if (voiceMessage) persistedVoicePresentation(message) else null
     val assetPath = voice?.let { if (it.canPlay) voiceMediaPath(it.mediaId) else null }
     val assetUrl = assetPath?.let(model::assetUrl).orEmpty()
     val target = state.target
     val playbackOwner = listOf("chat", state.config.coreUrl, target?.group.toString(), target?.id.orEmpty(),
         target?.conversationId.orEmpty(), id).joinToString("\u0000")
+    var showSpeech by remember(playbackOwner) { mutableStateOf(false) }
     BoxWithConstraints(Modifier.fillMaxWidth().testTag("live-message-$id")) {
         val maxBubble = minOf(310.dp, maxWidth * 0.78f)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = if (outbound) Arrangement.End else Arrangement.Start,
@@ -285,7 +288,10 @@ private fun LiveMessageBubble(message: JsonObject, author: String, characterId: 
             }
             Column(Modifier.widthIn(max = maxBubble), horizontalAlignment = if (outbound) Alignment.End else Alignment.Start) {
                 if (!outbound) Text(author, color = LiveMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Card(Modifier.widthIn(max = maxBubble).padding(top = 4.dp).testTag("live-message-bubble-$id"),
+                Card(Modifier.widthIn(max = maxBubble).padding(top = 4.dp).testTag("live-message-bubble-$id")
+                    .combinedClickable(onClick = {}, onLongClick = {
+                        if (!outbound && !voiceMessage && message.text("content").isNotBlank()) showSpeech = !showSpeech
+                    }),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = if (outbound) Color(0xFF2959A0) else Color(0xFF283447))) {
                     Column(Modifier.padding(horizontal = 13.dp, vertical = 11.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -298,7 +304,7 @@ private fun LiveMessageBubble(message: JsonObject, author: String, characterId: 
                 val time = LiveTime.short(message.text("event_time"))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (time.isNotEmpty()) Text(time, color = LiveMuted, fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp))
-                    if (!outbound && !voiceMessage && message.text("content").isNotBlank())
+                    if (showSpeech && !outbound && !voiceMessage && message.text("content").isNotBlank())
                         LiveSpeechButton(message.text("content"), playbackOwner, model, "live-message-tts-$id")
                 }
             }
