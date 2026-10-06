@@ -1,0 +1,4 @@
+interface:
+  display_name: "Live2D 建模与预览排障"
+  short_description: "分层 PSD 导出 Live2D、动态网页预览与眼睛嘴巴问题诊断"
+  default_prompt: "使用 $live2d-psd-preview 完成角色图像优化、生成、PSD 拆层与检查、程序导出和 Live2D 验证；密钥从显式 .env 读取，区分素材、绑定和网页渲染问题。"

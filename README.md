@@ -93,3 +93,7 @@ Character Memory Core (the ONE authoritative PersonRuntime)
 ---
 
 Character Memory 始终是同一个 Persistent Person。Android 扩展的是它能交互、看见和听见的渠道，而不是再制造一套人物或记忆。
+
+## 助手工具
+
+[Live2D 全流程 skill](skills/live2d-psd-preview/SKILL.md) 覆盖角色图像优化 / 生成、PSD 拆层与检查、离线程序导出、局部修正、模型打包和真实预览。该工具包独立于 Android App；依赖用户已有工具和缓存，密钥只从显式 `.env` 读取，仓库仅包含空值模板。完整命令见 [工作流程](skills/live2d-psd-preview/references/full-workflow.md)。
