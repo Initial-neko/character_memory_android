@@ -32,6 +32,7 @@ P2_SCREENS = (
     "p2-22-call-muted.png", "p2-23-call-camera.png", "p2-24-call-screen-shared.png",
     "p2-25-call-connecting.png", "p2-26-call-share-selector.png", "p2-27-call-pip.png",
     "p2-28-call-system-share-selector.png", "p2-29-call-pip-actions.png",
+    "p2-30-call-reference-normal.png", "p2-31-call-reference-live2d.png", "p2-32-call-reference-share.png",
 )
 
 

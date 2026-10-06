@@ -21,6 +21,7 @@ P1_SCREENS = (
 class EvidenceTest(unittest.TestCase):
     def test_p2_requires_all_new_call_states_and_rejects_unknown_images(self):
         required = {"p2-22-call-muted.png", "p2-23-call-camera.png", "p2-24-call-screen-shared.png", "p2-25-call-connecting.png", "p2-26-call-share-selector.png", "p2-27-call-pip.png", "p2-28-call-system-share-selector.png", "p2-29-call-pip-actions.png"}
+        required.update({"p2-30-call-reference-normal.png", "p2-31-call-reference-live2d.png", "p2-32-call-reference-share.png"})
         self.assertTrue(required.issubset(set(P2_SCREENS)))
         self.report("emulator", count=6, classname="com.charactermemory.android.LiveApiUiTest")
         folder = self.root / "artifacts/screenshots/CharacterMemoryP2"
@@ -163,7 +164,7 @@ class EvidenceTest(unittest.TestCase):
         self.assertEqual("PASS", summarize(self.root, "emulator")["status"])
         result = summarize(self.root, "emulator", profile="p2")
         self.assertEqual(5, result["tests"])
-        self.assertEqual(29, len(result["missing_screenshots"]))
+        self.assertEqual(32, len(result["missing_screenshots"]))
 
     def test_attribute_only_skip_prevents_pass(self):
         path = self.report()
