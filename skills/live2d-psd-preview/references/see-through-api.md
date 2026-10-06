@@ -48,7 +48,7 @@ finally:
     client.close()
 ```
 
-实际 helper 还设置 `HF_HUB_DISABLE_IMPLICIT_TOKEN=1`（在导入客户端前），避免顺带使用本机不相关 Hugging Face 凭据。SDK User-Agent 的大小写覆写曾影响元数据探测：自定义时用单一小写 `user-agent` 替换默认值，避免重复字段；这不是认证方案，遇到明确登录拒绝必须走合法认证。
+历史 SDK helper 设置 `HF_HUB_DISABLE_IMPLICIT_TOKEN=1`（在导入客户端前），避免顺带使用本机不相关 Hugging Face 凭据。当前打包的 requests helper 不导入该 SDK，并设置 `session.trust_env=False` 排除隐式 netrc 认证与代理凭据。SDK User-Agent 的大小写覆写曾影响元数据探测：自定义时用单一小写 `user-agent` 替换默认值，避免重复字段；这不是认证方案，遇到明确登录拒绝必须走合法认证。
 
 真实结果：专用普通异步 API `/gradio_api/upload` → `/gradio_api/call/inference` → SSE结果及PSD下载完成约124秒；官方 Python 客户端完成约145秒。相同原图、1024/42/false，两次生成文件5699614字节且SHA256一致。时间和一致性是本次观测，不是服务 SLA 或确定性保证。
 

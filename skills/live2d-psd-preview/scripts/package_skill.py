@@ -10,6 +10,8 @@ from pathlib import Path
 def files_for_package(root):
     allowed = []
     for path in sorted(root.rglob('*')):
+        if path.is_symlink():
+            raise ValueError('Symlinks cannot be packaged')
         if not path.is_file():
             continue
         relative = path.relative_to(root)
@@ -17,6 +19,14 @@ def files_for_package(root):
             continue
         if path.name.startswith('.env') and relative.as_posix() != '.env.example':
             raise ValueError('Real environment file cannot be packaged')
+        if relative.as_posix() == '.env.example':
+            for raw in path.read_text(encoding='utf-8').splitlines():
+                line = raw.strip()
+                if not line or line.startswith('#'):
+                    continue
+                _name, separator, value = line.partition('=')
+                if not separator or value.strip():
+                    raise ValueError('Environment template must contain empty values only')
         if relative.as_posix() in {'SKILL.md', '.env.example', '.gitignore'}:
             allowed.append(path)
         elif relative.parts[0] in {'scripts', 'references', 'agents'} and path.suffix in {

@@ -6,6 +6,13 @@ from package_skill import package, files_for_package, credential_findings
 
 
 class PackageTests(unittest.TestCase):
+    def test_populated_template_is_rejected_even_for_short_credentials(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / '.env.example').write_text('MSIMG_API_KEY=short\n')
+            with self.assertRaisesRegex(ValueError, 'empty values'):
+                files_for_package(root)
+
     def test_environment_and_binary_files_are_rejected(self):
         for name in ['.env', '.env.local', 'model.moc3', 'config.yaml', 'archive.zip']:
             with self.subTest(name=name), tempfile.TemporaryDirectory() as folder:
