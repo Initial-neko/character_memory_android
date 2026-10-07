@@ -16,9 +16,3 @@ interface CallCharacterRenderer {
     fun playAction(action: String)
     fun setExpression(expression: String)
 }
-/** Static Android stage until an actual native renderer is introduced. */
-object StaticCallCharacterRenderer : CallCharacterRenderer {
-    override fun setCharacterState(state: CallCharacterState) = Unit
-    override fun playAction(action: String) = Unit
-    override fun setExpression(expression: String) = Unit
-}

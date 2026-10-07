@@ -20,7 +20,7 @@ if [ "$home_result" -ne 0 ] || ! grep -Fq '<no ANR has occurred since boot>' art
   echo 'Emulator system readiness failed; UI acceptance was not run.' >&2
   exit 1
 fi
-./gradlew --no-daemon --max-workers=2 connectedDebugAndroidTest --stacktrace -Pandroid.testInstrumentationRunnerArguments.notAnnotation=com.charactermemory.android.RssLiveCore
+./gradlew --no-daemon --max-workers=2 connectedDebugAndroidTest --stacktrace -Pandroid.testInstrumentationRunnerArguments.notAnnotation=com.charactermemory.android.RssLiveCore,com.charactermemory.android.Live2dRealCore
 test_result=$?
 adb pull /sdcard/Pictures/CharacterMemoryP1 artifacts/screenshots
 p1_pull=$?

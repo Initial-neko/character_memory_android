@@ -30,7 +30,7 @@ V1 只包括与日常手机体验直接相关的功能：
 | 聊天 AI 图片 | 提示词生成草稿、确认后发送/查看 | 已有 ImageGen / Media API |
 | 基础设置 | 连接状态、语音/视觉偏好、通知、外观 | Android 本地偏好 + 少量 Core 设备契约 |
 
-**明确不进入 V1**：Dev Console、PC Settings 管理、TTS Workbench、密钥/模型配置、完整本地 LLM、Live2D/虚拟人物窗口。虚拟形象属于后续 V2 展示能力。
+**明确不进入 V1**：Dev Console、PC Settings 管理、TTS Workbench、密钥/模型配置、完整本地 LLM。当前另有可选的通话 Live2D 展示能力：Android WebView 复用 Core 已安装的渲染脚本和角色模型，支持全屏舞台及共享/视频小窗；不在 APK 分发 SDK，也不创建新的语音 Session。真实手机画面、动画及传感器验收单独记录。
 
 ## 总体架构
 

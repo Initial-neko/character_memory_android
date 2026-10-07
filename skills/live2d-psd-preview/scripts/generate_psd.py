@@ -3,7 +3,7 @@ import argparse
 import hashlib
 import json
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import quote, urlparse
 
 from live2d_env import load_token
@@ -23,6 +23,18 @@ def checked_api(value):
 
 def download_url(asset, base):
     url = asset if isinstance(asset, str) else asset.get('url')
+    # This instance returns its public UI alias even on the authenticated API.
+    # Fetch that exact cache path from the authorized API; never forward the token.
+    if isinstance(asset, dict) and asset.get('path'):
+        path = asset['path']
+        parsed_alias = urlparse(url or '')
+        if (isinstance(path, str) and path.startswith('/tmp/gradio/')
+                and '..' not in PurePosixPath(path).parts
+                and parsed_alias.scheme == 'https'
+                and parsed_alias.netloc == 'ljsabc-see-through.ms.show'
+                and parsed_alias.path == '/gradio_api/file=' + path
+                and not parsed_alias.query and not parsed_alias.fragment):
+            return base + '/gradio_api/file=' + quote(path, safe='/')
     if not url and isinstance(asset, dict) and asset.get('path'):
         url = base + '/gradio_api/file=' + quote(asset['path'], safe='/')
     parsed = urlparse(url or '')
@@ -68,6 +80,8 @@ def generate(args):
             event_id = checked(session.post(base + '/gradio_api/call/inference',
                 json=payload, timeout=60, allow_redirects=False)).json()['event_id']
             report['event_id'] = event_id
+            report.update(status='RUNNING', remote_state='SUBMITTED')
+            (output / 'report.json').write_text(json.dumps(report, indent=2).replace(token, '[REDACTED]'), encoding='utf-8')
             deadline = time.monotonic() + args.wait_seconds
             event = None
             with session.get(base + '/gradio_api/call/inference/' + quote(event_id, safe=''),
@@ -80,27 +94,31 @@ def generate(args):
                     if line.startswith('event:'):
                         event = line[6:].strip()
                     elif line.startswith('data:') and event == 'error':
+                        report.update(remote_state='FAILED', remote_event='error')
                         raise RuntimeError('Inference returned an error')
                     elif line.startswith('data:') and event == 'complete':
+                        report.update(remote_state='COMPLETE', remote_event='complete')
                         asset = json.loads(line[5:])[0]
+                        (output / 'result.json').write_text(json.dumps(asset, indent=2).replace(token, '[REDACTED]'), encoding='utf-8')
+                        (output / 'report.json').write_text(json.dumps(report, indent=2).replace(token, '[REDACTED]'), encoding='utf-8')
                         result = checked(session.get(download_url(asset, base),
                             timeout=120, allow_redirects=False)).content
                         if not result.startswith(b'8BPS'):
                             raise ValueError('Output is not a PSD')
                         (output / 'generated.psd').write_bytes(result)
                         report.update(status='PASS', psd_bytes=len(result),
-                                      psd_sha256=hashlib.sha256(result).hexdigest())
+                                      psd_sha256=hashlib.sha256(result).hexdigest(), remote_state='COMPLETE')
                         break
                 if report['status'] != 'PASS':
                     raise RuntimeError('Stream ended without a PSD result')
         except Exception as error:
+            report['status'] = 'FAIL'
             # Do not write SDK exceptions, headers, server bodies or token values.
             report['error_type'] = type(error).__name__
-            if isinstance(error, TimeoutError):
-                report['remote_state'] = 'UNKNOWN'
         finally:
             if report.get('event_id') and report['status'] != 'PASS':
-                report.setdefault('remote_state', 'UNKNOWN')
+                if report.get('remote_state') not in {'FAILED', 'COMPLETE'}:
+                    report['remote_state'] = 'UNKNOWN'
             report['elapsed_seconds'] = round(time.monotonic() - started, 2)
             serialized = json.dumps(report, indent=2).replace(token, '[REDACTED]')
             (output / 'report.json').write_text(serialized, encoding='utf-8')
@@ -117,7 +135,7 @@ def main():
     parser.add_argument('--resolution', type=int, choices=range(768, 1537, 64), default=1024)
     parser.add_argument('--seed', type=int, choices=range(10000), default=42)
     parser.add_argument('--tblr-split', action='store_true')
-    parser.add_argument('--wait-seconds', type=int, choices=range(1, 3601), default=600)
+    parser.add_argument('--wait-seconds', type=int, choices=range(1, 3601), default=1800)
     args = parser.parse_args()
     try:
         report = generate(args)

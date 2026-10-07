@@ -164,14 +164,11 @@ fun LiveApp(model: LiveViewModel = viewModel(factory = LiveViewModel.factory(Loc
             } else {
                 Column(Modifier.fillMaxSize().padding(inner).consumeWindowInsets(inner).imePadding()
                     .background(Brush.verticalGradient(listOf(LiveNavy, Color(0xFF0C1428), LiveNavy)))) {
+                    if (call.active && state.page != LivePage.CHAT) {
+                        LiveOngoingCall(state, model, call)
+                    }
                     state.error?.let { LiveFeedback(it, "live-error", true) }
                     state.notice?.let { LiveFeedback(it, "live-notice") }
-                    if (call.active && state.page != LivePage.CHAT) {
-                        TextButton(onClick = { model.show(LivePage.CHAT) },
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("live-call-return")) {
-                            Text("${state.target?.name ?: "人物"} · 通话进行中 · 返回通话")
-                        }
-                    }
                     Box(Modifier.weight(1f)) {
                         when (state.page) {
                             LivePage.HOME -> LiveHome(state, model)
@@ -195,13 +192,8 @@ fun LiveApp(model: LiveViewModel = viewModel(factory = LiveViewModel.factory(Loc
 
 @Composable
 private fun CallPipCompactContent(state: LiveState, target: ChatTarget, model: LiveViewModel, startedAtMs: Long) {
-    var elapsedSeconds by remember(startedAtMs) { mutableLongStateOf(0) }
-    LaunchedEffect(startedAtMs) {
-        if (startedAtMs > 0) while (true) {
-            elapsedSeconds = ((System.nanoTime() / 1_000_000 - startedAtMs) / 1000).coerceAtLeast(0)
-            delay(1000)
-        }
-    }
+    val call by model.call.state.collectAsStateWithLifecycle()
+    val duration = callElapsedText(startedAtMs)
     Box(Modifier.fillMaxSize().background(LiveNavy).testTag("live-call-pip-content")) {
         val avatar = state.avatars[target.id].orEmpty()
         if (avatar.isNotBlank()) {
@@ -223,8 +215,10 @@ private fun CallPipCompactContent(state: LiveState, target: ChatTarget, model: L
         Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
             Text(target.name, color = Color.White, fontSize = 15.sp, maxLines = 1,
                 overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("live-call-pip-name"))
-            Text("%02d:%02d".format(elapsedSeconds / 60, elapsedSeconds % 60), color = Color.White.copy(alpha = .82f),
+            Text(duration, color = Color.White.copy(alpha = .82f),
                 fontSize = 12.sp, modifier = Modifier.testTag("live-call-pip-duration"))
+            Text(callStatusText(call), color = Color.White.copy(alpha = .82f), fontSize = 11.sp,
+                maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("live-call-pip-status"))
         }
     }
 }

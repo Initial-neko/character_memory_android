@@ -1,0 +1,52 @@
+<!doctype html>
+<html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<!-- Pixi 6 compiles uniform synchronization with new Function; same-origin script loading remains mandatory. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'nonce-android-stage' 'unsafe-eval'; style-src 'nonce-android-stage'; img-src 'self'; connect-src 'self'; media-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
+<style nonce="android-stage">
+html,body,.voice-call-card,#voiceLive2dStage{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}
+/* Frame the upper body on a narrow phone; the shared-screen inset has its own fit. */
+#voiceLive2dStage{width:var(--character-stage-width,180%);margin-left:var(--character-stage-offset,-40%)}
+.stage-character-overlay #voiceLive2dStage{--character-stage-width:100%;--character-stage-offset:0%}
+canvas{display:block}.hidden{display:none!important}#voiceLive2dMessage{position:absolute;inset:35% 12px auto;color:white;text-align:center;font:14px sans-serif}
+</style>
+<script nonce="android-stage">window.CM={};window.androidStageConfig=__CONFIG__;</script>
+</head><body><div class="voice-call-card"><div id="voiceLive2dStage"></div><div id="voiceLive2dMessage" role="status"></div></div>
+<script nonce="android-stage">
+(() => {
+  // Android WebView can keep percentage root height at zero after first layout.
+  const fitViewport=()=>{document.documentElement.style.height=innerHeight+'px';};
+  fitViewport();addEventListener('resize',fitViewport);
+  let frames=0, stopped=false, paused=false, phase='idle';
+  const tick=()=>{if(stopped)return;if(!paused)frames++;requestAnimationFrame(tick);};
+  window.androidLive2d={
+    phase(value){phase=value;CM.live2d?.setPhase(value);},
+    action(value){return CM.live2d?.startMotion(value);},
+    expression(value){return CM.live2d?.setExpression(value);},
+    layout(inset){document.querySelector('.voice-call-card').classList.toggle('stage-character-overlay',inset);CM.live2d?.resume();if(paused)CM.live2d?.pause();},
+    pause(){paused=true;CM.live2d?.pause();},
+    resume(){paused=false;CM.live2d?.resume();},
+    stop(){stopped=true;CM.live2d?.stop();},
+    snapshot(){
+      const stage=document.getElementById('voiceLive2dStage'),canvas=stage.querySelector('canvas');
+      const context=CM.live2d?.requestContext(androidStageConfig.characterId);
+      return {kind:'live2d-web-renderer',characterId:androidStageConfig.characterId,ready:stage.classList.contains('ready')&&!!canvas&&canvas.width>0&&canvas.height>0,
+        realModel:!!context,context:context||null,canvasWidth:canvas?.width||0,canvasHeight:canvas?.height||0,
+        viewportWidth:innerWidth,viewportHeight:innerHeight,stageWidth:stage.clientWidth,stageHeight:stage.clientHeight,
+        rootHeight:document.documentElement.clientHeight,bodyHeight:document.body.clientHeight,cardHeight:stage.parentElement.clientHeight,
+        animationFrames:frames,paused,phase,behavior:stage.dataset.live2dBehavior||null,
+        message:document.getElementById('voiceLive2dMessage').textContent};
+    }
+  };
+  const loadScript=src=>new Promise((resolve,reject)=>{const script=document.createElement('script');script.src=src;script.onload=resolve;script.onerror=()=>reject(new Error(src));document.head.appendChild(script);});
+  (async()=>{
+    try{
+      await loadScript('/static/live2d_behavior.js');await loadScript('/static/live2d.js');
+      if(!CM.live2d)throw new Error('Renderer not initialized');
+      if(stopped)return;
+      CM.live2d.setCharacter(androidStageConfig.characterId);CM.live2d.toggle();CM.live2d.setPhase(phase);
+      if(paused)CM.live2d.pause();requestAnimationFrame(tick);
+    }catch(error){if(!stopped)document.getElementById('voiceLive2dMessage').textContent='无法加载 Core Live2D 渲染脚本，请检查连接：'+error.message;}
+  })();
+  addEventListener('pagehide',()=>androidLive2d.stop());
+})();
+</script></body></html>

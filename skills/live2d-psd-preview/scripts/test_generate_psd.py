@@ -8,7 +8,7 @@ from generate_psd import checked_api, download_url, generate, DEFAULT_API
 
 
 class ApiBoundaryTests(unittest.TestCase):
-    def run_fixture(self, folder, *, stream_error=False, redirect=False):
+    def run_fixture(self, folder, *, stream_error=False, redirect=False, download_failure=None):
         root = Path(folder)
         token = 'test-only-private-token'
         (root / '.env').write_text('MSIMG_API_KEY=' + token)
@@ -37,6 +37,10 @@ class ApiBoundaryTests(unittest.TestCase):
             def get(self, url, **kwargs):
                 calls.append((url, kwargs))
                 response = Response()
+                if url.endswith('/file.psd'):
+                    if download_failure == 'timeout': raise TimeoutError('fixture download timeout')
+                    if download_failure == 'forbidden': response.status_code = 403
+                    if download_failure == 'invalid': response.content = b'not a PSD'
                 if redirect: response.status_code = 302
                 return response
             def post(self, url, **kwargs):
@@ -64,7 +68,19 @@ class ApiBoundaryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             report, _ = self.run_fixture(folder, stream_error=True)
             self.assertEqual(report['status'], 'FAIL')
+            self.assertEqual(report['remote_state'], 'FAILED')
             self.assertFalse((Path(folder) / 'output/generated.psd').exists())
+
+    def test_completed_inference_is_preserved_when_download_fails(self):
+        for failure in ['timeout', 'forbidden', 'invalid']:
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as folder:
+                report, calls = self.run_fixture(folder, download_failure=failure)
+                self.assertEqual(report['status'], 'FAIL')
+                self.assertEqual(report['remote_state'], 'COMPLETE')
+                self.assertEqual(report['remote_event'], 'complete')
+                self.assertEqual(len(calls), 5)
+                self.assertTrue((Path(folder) / 'output/result.json').exists())
+                self.assertFalse((Path(folder) / 'output/generated.psd').exists())
 
     def test_redirect_is_rejected_without_further_authenticated_requests(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -99,6 +115,16 @@ class ApiBoundaryTests(unittest.TestCase):
             with patch.dict('sys.modules', {'requests': None}), self.assertRaisesRegex(ValueError, 'new output'):
                 generate(SimpleNamespace(env_file=root / '.env', api_base=DEFAULT_API,
                                          image=root / 'image.png', output=root))
+
+    def test_verified_public_alias_is_resolved_on_authorized_origin(self):
+        path = '/tmp/gradio/cache-id/seethrough_output.psd'
+        asset = {'path': path, 'url': 'https://ljsabc-see-through.ms.show/gradio_api/file=' + path}
+        self.assertEqual(download_url(asset, DEFAULT_API), DEFAULT_API + '/gradio_api/file=' + path)
+        for value in [dict(asset, path='/tmp/gradio/../private.psd'),
+                      dict(asset, url='https://other.example/gradio_api/file=' + path),
+                      dict(asset, url=asset['url']+'?token=anything')]:
+            with self.assertRaises(ValueError):
+                download_url(value, DEFAULT_API)
 
 
 if __name__ == '__main__':
