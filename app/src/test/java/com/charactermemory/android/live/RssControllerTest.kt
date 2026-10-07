@@ -7,14 +7,20 @@ import org.junit.Assert.*
 import org.junit.Test
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.CountDownLatch
+import java.net.InetAddress
 
 class RssControllerTest {
+    private fun repository(server:MockWebServer):RssRepository {
+        // A cancelled IPv4 route can make localhost resolve to unbound IPv6 on Linux.
+        val origin=server.url("/").newBuilder().host("127.0.0.1").build().toString()
+        return RssRepository(CoreApi(ServerConfig(origin,origin)))
+    }
     @Test fun leavingDetailDiscardsItsDelayedFailure()=runBlocking {
         MockWebServer().use {server ->
             server.enqueue(MockResponse().setResponseCode(503).setBody("""{"detail":"old detail failure"}""").setBodyDelay(250,TimeUnit.MILLISECONDS))
-            server.start()
+            server.start(InetAddress.getByName("127.0.0.1"),0)
             val scope=CoroutineScope(SupervisorJob()+Dispatchers.Unconfined)
-            val controller=RssController(RssRepository(CoreApi(ServerConfig(server.url("/").toString(),server.url("/").toString()))),scope)
+            val controller=RssController(repository(server),scope)
             try {
                 controller.openArticle(jsonObject("id" to 1));assertNotNull(server.takeRequest(2,TimeUnit.SECONDS))
                 controller.back();delay(400)
@@ -36,9 +42,9 @@ class RssControllerTest {
                     else -> MockResponse().setBody("""{"items":[],"has_more":false}""")
                 }
             }
-            server.start()
+            server.start(InetAddress.getByName("127.0.0.1"),0)
             val scope=CoroutineScope(SupervisorJob()+Dispatchers.Unconfined)
-            val controller=RssController(RssRepository(CoreApi(ServerConfig(server.url("/").toString(),server.url("/").toString()))),scope)
+            val controller=RssController(repository(server),scope)
             try {
                 controller.show(RssPage.ADD);controller.url("https://example.com/rss");controller.add();controller.add()
                 await(controller) { "add" !in it.busy && it.notice!=null }
@@ -67,9 +73,9 @@ class RssControllerTest {
                     }
                 }
             }
-            server.start()
+            server.start(InetAddress.getByName("127.0.0.1"),0)
             val scope=CoroutineScope(SupervisorJob()+Dispatchers.Unconfined)
-            val controller=RssController(RssRepository(CoreApi(ServerConfig(server.url("/").toString(),server.url("/").toString()))),scope)
+            val controller=RssController(repository(server),scope)
             try {
                 controller.loadFeed();assertTrue("old request must reach its delayed response",oldDispatched.await(2,TimeUnit.SECONDS))
                 controller.filter(RssQuery(period="all",q="new"));await(controller) {it.items.size==1}
