@@ -6,6 +6,7 @@ import okhttp3.mockwebserver.*
 import org.junit.Assert.*
 import org.junit.Test
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.CountDownLatch
 
 class RssControllerTest {
     @Test fun leavingDetailDiscardsItsDelayedFailure()=runBlocking {
@@ -49,14 +50,26 @@ class RssControllerTest {
     }
     @Test fun latestFilterWinsAndReturningFromArticleKeepsFeed()=runBlocking {
         MockWebServer().use {server ->
-            server.enqueue(MockResponse().setBody("""{"items":[{"id":1,"title":"old"}]}""").setBodyDelay(500,TimeUnit.MILLISECONDS))
-            server.enqueue(MockResponse().setBody("""{"items":[{"id":2,"title":"new"}],"has_more":true,"next_before_id":2}"""))
-            server.enqueue(MockResponse().setBody("""{"item":{"id":2,"content_html":"<p>正文</p>"}}"""))
+            val oldDispatched=CountDownLatch(1)
+            // Cancellation may close the first socket before a queued response is consumed.
+            // Select responses by request identity, independently of socket scheduling.
+            server.dispatcher=object:Dispatcher() {
+                override fun dispatch(request:RecordedRequest):MockResponse = when {
+                    request.requestUrl!!.encodedPath=="/v1/rss/items/2" ->
+                        MockResponse().setBody("""{"item":{"id":2,"content_html":"<p>正文</p>"}}""")
+                    request.requestUrl!!.queryParameter("q")=="new" ->
+                        MockResponse().setBody("""{"items":[{"id":2,"title":"new"}],"has_more":true,"next_before_id":2}""")
+                    else -> {
+                        oldDispatched.countDown()
+                        MockResponse().setBody("""{"items":[{"id":1,"title":"old"}]}""").setBodyDelay(500,TimeUnit.MILLISECONDS)
+                    }
+                }
+            }
             server.start()
             val scope=CoroutineScope(SupervisorJob()+Dispatchers.Unconfined)
             val controller=RssController(RssRepository(CoreApi(ServerConfig(server.url("/").toString(),server.url("/").toString()))),scope)
             try {
-                controller.loadFeed();server.takeRequest(2,TimeUnit.SECONDS)
+                controller.loadFeed();assertTrue("old request must reach its delayed response",oldDispatched.await(2,TimeUnit.SECONDS))
                 controller.filter(RssQuery(period="all",q="new"));await(controller) {it.items.size==1}
                 val before=controller.state.value
                 assertEquals("2",before.items.single().text("id"))
