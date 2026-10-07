@@ -4,6 +4,10 @@ Status: **V1 voice/call/sticker/visual source and regressions integrated; execut
 
 ## 当前自动化门槛
 
+RSS adds JVM repository/state/HTML tests and `RssUiTest.subscriptionsSourceFiltersDetailsAndRecovery` against synthetic HTTPS. This checks the actual information tab, source/title/type/cursor combination, paragraph/image detail, add failure preservation, cancellation and restoration. Screenshots and request JSON live in the target app's external `rss-acceptance` directory and CI pulls them into `artifacts/rss`.
+
+`RssUiTest.actualCoreFeedAndRichArticle` is annotated `RssLiveCore` and excluded from fixture CI, rather than counted as skipped evidence. Run it explicitly with `rss_real_core` (HTTPS origin), `rss_real_ca` (base64 PEM acceptance certificate), `rss_real_item` and `rss_real_source` instrumentation arguments against an actual Core deployment. It uses explicit certificate trust and hostname validation; fixture certificates are test-only. Record real RSS/API/image results separately from mocks. Emulator success does not establish phone installation or sensor acceptance.
+
 `scripts/summarize_evidence.py` 按 `--profile p1`（默认）或 `--profile p2` 分开汇总。P1 只计 `PrototypeRulesTest` / `PrototypeViewModelTest` / `PrototypeUiTest`；P2 计新增 API/business/UI 测试。任何 skipped、failure/error、缺失/非法 XML、重复 testcase identity 都不能 PASS。截图按 `p1-` / `p2-` 前缀隔离，缺失、重复或多余的同阶段文件名会失败；JSON 保存原始 PNG 的 SHA-256 和实际 git SHA。
 
 | 证据 | P1 | P2 |

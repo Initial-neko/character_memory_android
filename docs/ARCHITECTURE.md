@@ -28,6 +28,10 @@ One authoritative Character Core; Android does not run PersonRuntime/Memory, acc
 
 ## 2. Android project structure
 
+RSS is a Core-backed information tab beside Chat, Space and Settings. `RssRepository` uses the documented Core RSS API; `RssController` owns only transient filters, paging, detail and subscription UI state. It defaults to today (Core UTC+8 publication date), supports individual source/title/type filters, and retains list scroll and filters when returning from a detail. Selecting a source defaults to its full history. No local grabber, fact database or automatic character consumption is added.
+
+Core [subscription lifecycle #243](https://github.com/Initial-neko/character_memory/pull/243) is required for cancellation and restoration. Cancellation retains articles and stops fetching; restoration reuses the source ID and fetches once. Pausing remains separate. Failed immediate fetch preserves the subscription; the client does not repeat POSTs automatically. Rich detail uses Core-sanitized HTML, disabled JavaScript/file access, a restrictive CSP and Core image proxy requests through the configured transport. The footer opens the original item URL externally.
+
 Current source uses one app module: `data/` holds HTTPS configuration, Core transport and durable message projection; `live/` holds API-backed UI/business state; `Prototype*.kt` and `screens/` retain the explicitly launched P1 offline demo. Settings and per-server direct IDs use local SharedPreferences. `MainActivity` selects P1 only for `p1_mock=true`; normal launch selects P2. Background/target changes close streams and invalidate stale responses. The structure below is a future-stage expansion, not a list of existing modules.
 
 Initially **one Gradle app module, feature-based packages**. Split into separate Gradle modules only when a real build/ownership need appears.

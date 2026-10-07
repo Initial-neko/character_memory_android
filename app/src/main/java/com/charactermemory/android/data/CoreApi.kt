@@ -49,6 +49,31 @@ class CoreApi(val config: ServerConfig, client: OkHttpClient = OkHttpClient()) {
 
     suspend fun post(path: String, body: JsonObject): JsonObject = write("POST", path, body)
     suspend fun patch(path: String, body: JsonObject): JsonObject = write("PATCH", path, body)
+    suspend fun delete(path: String): JsonObject = write("DELETE", path, JsonObject())
+
+    /** WebView runs this on its resource thread, using the configured transport's trust. */
+    internal fun rssImage(value:String):Pair<ByteArray,String> {
+        val image=value.toHttpUrl()
+        val base=config.coreUrl.toHttpUrl()
+        require(image.scheme==base.scheme && image.host==base.host && image.port==base.port &&
+            Regex("/v1/rss/items/[1-9][0-9]*/image").matches(image.encodedPath))
+        http.newCall(Request.Builder().url(image).get().build()).execute().use { response ->
+            if(!response.isSuccessful) throw IOException("文章图片加载失败 (${response.code})")
+            val mime=response.header("Content-Type").orEmpty().substringBefore(';').trim().lowercase()
+            require(mime in setOf("image/jpeg","image/png","image/gif","image/webp","image/avif","image/bmp","image/x-icon"))
+            val output=ByteArrayOutputStream()
+            val input=response.body?.byteStream() ?: throw IOException("文章图片为空")
+            input.use { stream ->
+                val chunk=ByteArray(8192)
+                while(true) {
+                    val count=stream.read(chunk);if(count<0) break
+                    if(output.size()+count>4*1024*1024) throw IOException("文章图片超出上限")
+                    output.write(chunk,0,count)
+                }
+            }
+            return output.toByteArray() to mime
+        }
+    }
 
     /** Binary TTS is always served by Media, not Core; a failed generation is never replayed. */
     suspend fun synthesizeSpeech(text: String, voice: String? = null): SynthesizedAudio {
