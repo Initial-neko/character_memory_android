@@ -1130,6 +1130,11 @@ class LiveApiUiTest {
                 device.findObject(androidx.test.uiautomator.By.desc("静音通话麦克风"))?.let {
                     it.click(); clicked = true
                 }
+                // A slow screenshot can outlast the system menu's visibility.
+                // Reopen the real PiP menu before reacquiring its action.
+                if (!clicked && activity.isInPictureInPictureMode) {
+                    device.findObject(androidx.test.uiautomator.By.text("Rin"))?.click()
+                }
             } catch (_: androidx.test.uiautomator.StaleObjectException) { }
             if (!clicked) SystemClock.sleep(100)
         }

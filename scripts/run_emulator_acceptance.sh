@@ -3,7 +3,7 @@
 # executes separate YAML script lines separately, so inline `set +e` is insufficient.
 set +e
 export ANDROID_SERIAL="${ANDROID_SERIAL:-emulator-5554}"
-mkdir -p artifacts/screenshots
+mkdir -p artifacts/screenshots artifacts/rss
 adb logcat -b all -v threadtime > artifacts/emulator-continuous-logcat.txt &
 log_pid=$!
 trap 'kill "$log_pid" 2>/dev/null; wait "$log_pid" 2>/dev/null' EXIT
@@ -26,8 +26,10 @@ adb pull /sdcard/Pictures/CharacterMemoryP1 artifacts/screenshots
 p1_pull=$?
 adb pull /sdcard/Pictures/CharacterMemoryP2 artifacts/screenshots
 p2_pull=$?
-adb pull /sdcard/Android/data/com.charactermemory.android/files/rss-acceptance artifacts/rss
+adb pull /sdcard/Pictures/CharacterMemoryRss artifacts/rss/screenshots
 rss_pull=$?
+adb pull /sdcard/Download/CharacterMemoryRss artifacts/rss/requests
+rss_requests_pull=$?
 adb logcat -b all -d > artifacts/emulator-logcat.txt
 logs=$?
 adb shell dumpsys activity lastanr > artifacts/emulator-lastanr.txt
@@ -41,6 +43,6 @@ fi
 if [ "$test_result" -ne 0 ]; then
   exit "$test_result"
 fi
-if [ "$p1_pull" -ne 0 ] || [ "$p2_pull" -ne 0 ] || [ "$rss_pull" -ne 0 ] || [ "$logs" -ne 0 ]; then
+if [ "$p1_pull" -ne 0 ] || [ "$p2_pull" -ne 0 ] || [ "$rss_pull" -ne 0 ] || [ "$rss_requests_pull" -ne 0 ] || [ "$logs" -ne 0 ]; then
   exit 1
 fi

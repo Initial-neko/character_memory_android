@@ -4,6 +4,9 @@ import android.content.Intent
 import android.app.Instrumentation
 import android.app.Activity
 import android.graphics.Bitmap
+import android.content.ContentValues
+import android.os.Build
+import android.provider.MediaStore
 import androidx.activity.compose.setContent
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
@@ -50,7 +53,26 @@ class RssUiTest {
         compose.waitForIdle()
         UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).waitForIdle(1000)
         val directory=File(compose.activity.getExternalFilesDir(null),"rss-acceptance").apply {mkdirs()}
-        Assert.assertTrue(UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).takeScreenshot(File(directory,"$name.png")))
+        val file=File(directory,"$name.png")
+        Assert.assertTrue(UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).takeScreenshot(file))
+        publish(file)
+    }
+    private fun evidence(name:String,text:String) {
+        val file=File(compose.activity.getExternalFilesDir(null),"rss-acceptance/$name")
+        file.writeText(text);publish(file)
+    }
+    private fun publish(file:File) {
+        // Gradle uninstalls the target after connected tests; public evidence survives.
+        if(Build.VERSION.SDK_INT<Build.VERSION_CODES.Q) return
+        val image=file.extension=="png"
+        val values=ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME,file.name)
+            put(MediaStore.MediaColumns.MIME_TYPE,if(image) "image/png" else if(file.extension=="json") "application/json" else "text/plain")
+            put(MediaStore.MediaColumns.RELATIVE_PATH,if(image) "Pictures/CharacterMemoryRss/" else "Download/CharacterMemoryRss/")
+        }
+        val resolver=compose.activity.contentResolver
+        val uri=requireNotNull(resolver.insert(if(image) MediaStore.Images.Media.EXTERNAL_CONTENT_URI else MediaStore.Downloads.EXTERNAL_CONTENT_URI,values))
+        requireNotNull(resolver.openOutputStream(uri)).use {output->file.inputStream().use {it.copyTo(output)}}
     }
     @Test fun subscriptionsSourceFiltersDetailsAndRecovery() {
         val requests=CopyOnWriteArrayList<String>()
@@ -118,7 +140,7 @@ class RssUiTest {
             Assert.assertEquals(1,requests.count {it=="DELETE /v1/rss/sources/2"})
             Assert.assertEquals(1,requests.count {it=="POST /v1/rss/sources/2/restore"})
             Assert.assertEquals(1,requests.count {it=="POST /v1/rss/sources"})
-            File(compose.activity.getExternalFilesDir(null),"rss-acceptance/mock-requests.json").writeText(com.google.gson.Gson().toJson(requests))
+            evidence("mock-requests.json",com.google.gson.Gson().toJson(requests))
         }
     }
     @Test @RssLiveCore fun actualCoreFeedAndRichArticle() {
@@ -136,7 +158,7 @@ class RssUiTest {
             compose.waitUntil(20000) {compose.onAllNodes(hasTestTag("rss-feed-grid")).fetchSemanticsNodes().isNotEmpty()}
         } catch(error:Throwable) {
             screen("real-core-failure")
-            File(compose.activity.getExternalFilesDir(null),"rss-acceptance/real-core-failure.txt").writeText(compose.onRoot().printToString())
+            evidence("real-core-failure.txt",compose.onRoot().printToString())
             throw error
         }
         screen("real-core-feed")
@@ -181,7 +203,7 @@ class RssUiTest {
         compose.onNodeWithTag("rss-subscriptions").performClick()
         compose.waitUntil(10000) {compose.onAllNodesWithTag("rss-source-list").fetchSemanticsNodes().isNotEmpty()}
         screen("real-core-sources")
-        File(compose.activity.getExternalFilesDir(null),"rss-acceptance/real-ui-result.json").writeText(com.google.gson.Gson().toJson(mapOf(
+        evidence("real-ui-result.json",com.google.gson.Gson().toJson(mapOf(
             "real_core" to true,"source_id" to source,"article_id" to id,"cover_loaded" to true,"body_visible" to true,"source_retained" to true,"original_intent_url" to original)))
     }
     @After fun cleanup() {if(::model.isInitialized) compose.runOnUiThread {model.deactivate()};coil.Coil.reset()}

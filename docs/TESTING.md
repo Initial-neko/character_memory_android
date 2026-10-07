@@ -4,7 +4,7 @@ Status: **V1 voice/call/sticker/visual source and regressions integrated; execut
 
 ## 当前自动化门槛
 
-RSS adds JVM repository/state/HTML tests and `RssUiTest.subscriptionsSourceFiltersDetailsAndRecovery` against synthetic HTTPS. This checks the actual information tab, source/title/type/cursor combination, paragraph/image detail, add failure preservation, cancellation and restoration. Screenshots and request JSON live in the target app's external `rss-acceptance` directory and CI pulls them into `artifacts/rss`.
+RSS adds JVM repository/state/HTML tests and `RssUiTest.subscriptionsSourceFiltersDetailsAndRecovery` against synthetic HTTPS. This checks the actual information tab, source/title/type/cursor combination, paragraph/image detail, add failure preservation, cancellation and restoration. Evidence is saved locally in the app's external `rss-acceptance` directory, and on API29+ also published through MediaStore to `Pictures/CharacterMemoryRss` and `Download/CharacterMemoryRss`. Public evidence survives Gradle's post-test APK uninstall; CI pulls it into `artifacts/rss`.
 
 `RssUiTest.actualCoreFeedAndRichArticle` is annotated `RssLiveCore` and excluded from fixture CI, rather than counted as skipped evidence. Run it explicitly with `rss_real_core` (HTTPS origin), `rss_real_ca` (base64 PEM acceptance certificate), `rss_real_item` and `rss_real_source` instrumentation arguments against an actual Core deployment. It uses explicit certificate trust and hostname validation; fixture certificates are test-only. Record real RSS/API/image results separately from mocks. Emulator success does not establish phone installation or sensor acceptance.
 
