@@ -24,10 +24,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -68,7 +64,6 @@ internal fun LiveCallScreen(state: LiveState, model: LiveViewModel) {
     var moreOpen by remember { mutableStateOf(false) }
     var historyOpen by remember { mutableStateOf(false) }
     val speakerEnabled = LiveAudioPlayback.callSpeakerEnabled
-    LaunchedEffect(call.phase, call.replyText) { StaticCallCharacterRenderer.setCharacterState(CallCharacterState(call.phase, call.replyText)) }
     var previewError by remember { mutableStateOf<String?>(null) }
     val previewScope = rememberCoroutineScope()
     val sharing = share.active && share.characterId == target.id && share.conversationId == target.conversationId && share.coreUrl == state.config.coreUrl
@@ -85,15 +80,7 @@ internal fun LiveCallScreen(state: LiveState, model: LiveViewModel) {
         }
     }
     BackHandler { model.back() }
-    val status = when {
-        call.phase == "permission" -> "等待麦克风授权"
-        !call.transportAvailable -> if (call.microphoneMuted) "连接中断，正在重连 · 麦克风已静音" else "连接中断，正在重连 · 录音已暂停"
-        call.microphoneMuted -> if (call.phase == "speaking") "对方正在说话 · 你的麦克风已静音" else "麦克风已静音 · 仍可接收回复"
-        call.phase == "speaking" -> "对方正在说话 · 麦克风暂时暂停"
-        call.phase == "transcribing" -> "正在识别你的话"
-        call.phase == "waiting" -> "等待回复 · 可以继续说话"
-        else -> "正在倾听"
-    }
+    val status = callStatusText(call)
     if (call.phase == "permission") {
         ConnectingCallScreen(state, model, status)
         return
@@ -121,14 +108,6 @@ internal fun LiveCallScreen(state: LiveState, model: LiveViewModel) {
                 }
             } else if (mode == CallStageMode.LIVE2D) {
                 Image(painterResource(R.drawable.call_room), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                if (avatar.isNotBlank()) AsyncImage(model.assetUrl(avatar), "${target.name}静态角色画面",
-                    contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().padding(top = 110.dp, bottom = 170.dp)
-                        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                        .drawWithContent {
-                            drawContent()
-                            drawRect(Brush.verticalGradient(0f to Color.Transparent, .25f to Color.White, .72f to Color.White, 1f to Color.Transparent), blendMode = BlendMode.DstIn)
-                        }.testTag("live-call-live2d-placeholder"))
-                else Text(target.name.take(1), color = LivePale.copy(alpha = .25f), fontSize = 160.sp)
             } else Column(Modifier.align(Alignment.Center).padding(bottom = 180.dp), horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(24.dp)) {
                 Box(Modifier.size(if (short) 100.dp else 230.dp).background(Color(0xFF1C2C49), CircleShape).padding(16.dp), contentAlignment = Alignment.Center) {
@@ -138,6 +117,15 @@ internal fun LiveCallScreen(state: LiveState, model: LiveViewModel) {
             }
         }
         if (immersive) Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .45f), Color.Transparent, Color.Black.copy(alpha = .85f)))))
+        // One renderer keeps its model and presentation while the existing capture stage changes.
+        if (characterMode == CallStageMode.LIVE2D) {
+            val inset = stage.hasCharacterOverlay(sharing, cameraOpened)
+            val rendererModifier = if (inset) Modifier.align(Alignment.BottomEnd).padding(bottom = bottomSpace + 16.dp, end = 16.dp)
+                .size(if (short) 92.dp else 130.dp, if (short) 120.dp else 174.dp).clip(RoundedCornerShape(20.dp))
+                .background(Color(0xFF263650)).testTag("live-call-character-inset")
+            else Modifier.fillMaxSize().padding(top = 90.dp, bottom = bottomSpace)
+            Live2dCallCharacter(state.config.coreUrl, target.id, CallCharacterState(call.phase, call.replyText), inset, rendererModifier)
+        }
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = model::back, modifier = Modifier.testTag("live-back").semantics { contentDescription = "收起通话" }) { LiveGlyph(LiveSymbol.BACK, tint = Color.White) }
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -147,7 +135,7 @@ internal fun LiveCallScreen(state: LiveState, model: LiveViewModel) {
             }
             IconButton(onClick = presentation.enterPip, modifier = Modifier.testTag("live-call-pip").semantics { contentDescription = "通话小窗" }) { LiveGlyph(LiveSymbol.DISPLAY, tint = Color.White) }
         }
-        if (stage.hasCharacterOverlay(sharing, cameraOpened)) Box(Modifier.align(Alignment.TopEnd).padding(top = 110.dp, end = 16.dp)
+        if (stage.hasCharacterOverlay(sharing, cameraOpened) && characterMode != CallStageMode.LIVE2D) Box(Modifier.align(Alignment.BottomEnd).padding(bottom = bottomSpace + 16.dp, end = 16.dp)
             .size(if (short) 92.dp else 130.dp, if (short) 120.dp else 174.dp).clip(RoundedCornerShape(20.dp)).background(Color(0xFF263650))
             .testTag("live-call-character-inset"), contentAlignment = Alignment.Center) {
             if (avatar.isNotBlank()) AsyncImage(model.assetUrl(avatar), "${target.name}悬浮角色", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
@@ -187,7 +175,7 @@ internal fun LiveCallScreen(state: LiveState, model: LiveViewModel) {
                 OutlinedButton(onClick = { model.selectCallCharacterMode(CallStageMode.AVATAR); moreOpen = false }, modifier = Modifier.testTag("live-call-avatar-mode")) { Text("头像") }
                 Button(onClick = { model.selectCallCharacterMode(CallStageMode.LIVE2D); moreOpen = false }, modifier = Modifier.testTag("live-call-live2d-mode")) { Text("Live2D") }
             }
-            Text("Live2D 当前展示静态角色图", color = LiveMuted, fontSize = 12.sp)
+            Text("Live2D 加载 Core 上已配置的动态模型", color = LiveMuted, fontSize = 12.sp)
             TextButton(onClick = { cameraRequest++; moreOpen = false }, modifier = Modifier.testTag("live-call-camera-toggle"), enabled = "visual" !in state.busy) { Text(if (cameraOpened) "关闭摄像头" else "开启视频") }
             TextButton(onClick = { moreOpen = false; if (sharing) screenRequest++ else shareExplanation = true }, modifier = Modifier.testTag("live-call-screen-toggle"), enabled = !target.group) { Text(if (sharing) "停止共享" else "共享屏幕") }
             if (sharing) {

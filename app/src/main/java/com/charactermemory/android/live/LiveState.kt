@@ -9,7 +9,7 @@ import com.google.gson.JsonObject
 import java.security.MessageDigest
 import java.time.OffsetDateTime
 
-enum class LivePage { HOME, CHAT, SETTINGS, CHARACTER, ENSEMBLE, SPACE, IMAGE, DETAILS, USAGE }
+enum class LivePage { HOME, CHAT, SETTINGS, CHARACTER, ENSEMBLE, SPACE, RSS, IMAGE, DETAILS, USAGE }
 data class ChatTarget(val id: String, val name: String, val group: Boolean, val conversationId: String,
     val memberIds: List<String> = emptyList())
 data class CommentReceipt(val id: String, val draftText: String, val replyTo: Long?, val replyWindow: SpaceReplyWindow? = null, val mentions: List<String> = emptyList())

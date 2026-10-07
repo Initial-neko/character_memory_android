@@ -39,7 +39,7 @@ internal val LivePurple = Color(0xFFB09CFF)
 internal val LiveCyan = Color(0xFF76D4E9)
 internal val LiveBorder = Color(0xFF263956)
 
-internal enum class LiveSymbol { BACK, CHAT, SPACE, SETTINGS, PERSON, GROUP, SPARKLE, REFRESH, MORE, SEND, STICKER, TOOLS, MIC, PHONE, KEYBOARD, PLAY, STOP, CAMERA, DISPLAY, MIC_OFF, SPEAKER }
+internal enum class LiveSymbol { BACK, CHAT, SPACE, INFO, SETTINGS, PERSON, GROUP, SPARKLE, REFRESH, MORE, SEND, STICKER, TOOLS, MIC, PHONE, KEYBOARD, PLAY, STOP, CAMERA, DISPLAY, MIC_OFF, SPEAKER }
 
 /** Small native vector drawings avoid font-dependent symbol sizing and extra dependencies. */
 @Composable
@@ -80,6 +80,7 @@ internal fun LiveGlyph(symbol: LiveSymbol, modifier: Modifier = Modifier, tint: 
                 line(5f, 18f, 5f, 22f); line(5f, 22f, 10f, 18f); line(7f, 9f, 17f, 9f); line(7f, 13f, 14f, 13f)
             }
             LiveSymbol.SPACE -> { circle(12f, 12f, 9f); circle(12f, 12f, 4f); line(12f, 1f, 12f, 3f); line(12f, 21f, 12f, 23f) }
+            LiveSymbol.INFO -> { drawRoundRect(tint,point(3f,3f),Size(18f*unit,18f*unit),androidx.compose.ui.geometry.CornerRadius(2f*unit),style=stroke);line(7f,8f,17f,8f);line(7f,12f,17f,12f);line(7f,16f,13f,16f) }
             LiveSymbol.SETTINGS -> { circle(12f, 12f, 7f); circle(12f, 12f, 2.5f); listOf(0f, 90f, 180f, 270f).forEach { angle ->
                 val r = Math.toRadians(angle.toDouble()); line(12f + 8f * kotlin.math.cos(r).toFloat(), 12f + 8f * kotlin.math.sin(r).toFloat(), 12f + 11f * kotlin.math.cos(r).toFloat(), 12f + 11f * kotlin.math.sin(r).toFloat())
             } }

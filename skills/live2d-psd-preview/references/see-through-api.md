@@ -58,7 +58,11 @@ MCP 使用 initialize → notifications/initialized；后续按协商协议传 M
 
 MCP image 接受可访问的 HTTP/HTTPS 图片地址；本地文件先走服务支持的上传。Gradio6.2.0的非图片文件输出可能是 TextContent 中的**纯 PSD URL**，并非 JSON 对象；解析同时支持结构化 FileData 与纯链接。只允许已验证输出主机，下载需要改主机时移除认证；不能把 Key 发给任意返回 URL。
 
+专用 API 实测也会在 FileData 返回公开页面 `ljsabc-see-through.ms.show` 的 URL。工具仅对这一已核验别名、与 URL 完全匹配且没有 `..` 的 `/tmp/gradio/` 缓存路径，改为从原获授权 API 的 `/gradio_api/file=` 下载；请求不会发送到公开页面，不向别名转发密钥。其他外部 URL 仍拒绝。先保存脱敏 `result.json`，下载失败时保留资源位置用于续查，避免已完成推理因链接校验失败而失去结果。
+
 保存最终结果、PSD的8BPS文件头/大小/哈希、调用参数、退出码和脱敏错误正文。失败报告应定位具体 URL、HTTP状态、平台码；只记录连接成功不够。等待超过明确预算时记录远端状态未知，保留 event_id 优先续查，不盲目重复提交。本次为核验两种客户端进行了两次授权推理，之后无需再重复。
+
+注意：Gradio 6.2 的标准 SSE 路由在客户端断连时调用 `clean_events`，会移除排队事件或标记运行事件失活；重连相同 event_id 不保证恢复任务或找回输出。不要把心跳当作仍在执行，也不要无限续查。源码见 [routes.py](https://github.com/gradio-app/gradio/blob/gradio%406.2.0/gradio/routes.py) 和 [queueing.py](https://github.com/gradio-app/gradio/blob/gradio%406.2.0/gradio/queueing.py)。当前 helper 默认保持单次连接等待最多 1800 秒，可显式调到 3600 秒；提交即保存 event_id，超时不自动重提，已提交远端结局仍以实际结果为准。
 
 ## 可移植执行
 

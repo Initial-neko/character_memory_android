@@ -986,12 +986,33 @@ class LiveApiUiTest {
         compose.runOnUiThread { model.grantCallPermission(requireNotNull(model.requestCall()), true) }
         compose.waitUntil(10000) { fakeCallRecording != null }
         val start = model.call.state.value.startedAtMs
+        val recording = fakeCallRecording
         tap("live-back")
         assertTrue(model.call.state.value.active)
+        compose.onNodeWithTag("live-call-status", useUnmergedTree = true).assertTextContains("正在倾听")
+        compose.onNodeWithTag("live-call-name", useUnmergedTree = true).assertTextContains("Rin")
+        compose.onNodeWithTag("live-call-duration", useUnmergedTree = true).assertIsDisplayed()
+        screenshot("40-minimized-call-home", "live-call-return")
+        for (page in listOf(LivePage.SPACE, LivePage.RSS, LivePage.SETTINGS, LivePage.CHARACTER)) {
+            compose.runOnUiThread { model.show(page) }
+            compose.onNodeWithTag("live-call-return").assertIsDisplayed()
+            compose.onNodeWithTag("live-call-status", useUnmergedTree = true).assertTextContains("正在倾听")
+            assertEquals(start, model.call.state.value.startedAtMs)
+            assertSame(recording, fakeCallRecording)
+        }
+        screenshot("41-minimized-call-create", "live-call-return")
+        compose.runOnUiThread { model.call.setMicrophoneMuted(true) }
+        compose.onNodeWithTag("live-call-status", useUnmergedTree = true).assertTextContains("麦克风已静音", substring = true)
+        compose.runOnUiThread { model.call.setTransportAvailable(false) }
+        compose.onNodeWithTag("live-call-status", useUnmergedTree = true).assertTextContains("正在重连", substring = true)
+        assertEquals(start, model.call.state.value.startedAtMs)
         compose.onNodeWithTag("live-call-return").assertIsDisplayed().performClick()
         compose.onNodeWithTag("live-call-screen").assertIsDisplayed()
         assertEquals(start, model.call.state.value.startedAtMs)
         tap("live-call-hangup")
+        compose.runOnUiThread { model.show(LivePage.HOME) }
+        compose.onNodeWithTag("live-call-return").assertDoesNotExist()
+        assertFalse(dispatcher.writes.any { it.first == "/v1/chat/messages" })
     }
     @Test fun notificationHangupReleasesTheSameCallAndRecorder() {
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
@@ -1130,6 +1151,11 @@ class LiveApiUiTest {
                 device.findObject(androidx.test.uiautomator.By.desc("静音通话麦克风"))?.let {
                     it.click(); clicked = true
                 }
+                // A slow screenshot can outlast the system menu's visibility.
+                // Reopen the real PiP menu before reacquiring its action.
+                if (!clicked && activity.isInPictureInPictureMode) {
+                    device.findObject(androidx.test.uiautomator.By.text("Rin"))?.click()
+                }
             } catch (_: androidx.test.uiautomator.StaleObjectException) { }
             if (!clicked) SystemClock.sleep(100)
         }
@@ -1256,11 +1282,12 @@ class LiveApiUiTest {
         val writesBefore = dispatcher.writes.size
         screenshot("30-call-reference-normal", "live-call-screen")
         tap("live-call-more"); tap("live-call-live2d-mode")
-        compose.onNodeWithTag("live-call-live2d-placeholder").assertIsDisplayed()
+        compose.onNodeWithTag("live-call-live2d-renderer").assertIsDisplayed()
+        compose.onNodeWithTag("live-call-live2d-placeholder").assertDoesNotExist()
         screenshot("31-call-reference-live2d", "live-call-screen")
         assertEquals(started, model.call.state.value.startedAtMs)
         tap("live-back"); tap("live-call-return")
-        compose.onNodeWithTag("live-call-live2d-placeholder").assertIsDisplayed()
+        compose.onNodeWithTag("live-call-live2d-renderer").assertIsDisplayed()
         assertEquals(started, model.call.state.value.startedAtMs)
         tap("live-call-history"); tap("live-call-history-close")
         assertEquals(started, model.call.state.value.startedAtMs)

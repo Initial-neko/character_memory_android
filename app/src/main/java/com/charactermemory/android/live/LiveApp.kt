@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -53,6 +54,13 @@ private tailrec fun Context.findMainActivity(): MainActivity? = when (this) {
 @Composable
 fun LiveApp(model: LiveViewModel = viewModel(factory = LiveViewModel.factory(LocalContext.current))) {
     val state by model.state.collectAsStateWithLifecycle()
+    val rssScope=rememberCoroutineScope()
+    val rss=remember(state.config) {RssController(RssRepository(model.api),rssScope)}
+    val rssState by rss.state.collectAsStateWithLifecycle()
+    val rssGrid=rememberLazyStaggeredGridState()
+    DisposableEffect(rss) {onDispose {rss.close()}}
+    LaunchedEffect(state.page,rss) {if(state.page==LivePage.RSS && state.config.coreUrl.isNotBlank()) rss.start()}
+    LaunchedEffect(rssState.query,rss) {rssGrid.scrollToItem(0)}
     val call by model.call.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val activity = remember(context) { context.findMainActivity() }
@@ -89,14 +97,14 @@ fun LiveApp(model: LiveViewModel = viewModel(factory = LiveViewModel.factory(Loc
         if (owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) model.activate()
         onDispose { owner.lifecycle.removeObserver(observer); model.deactivate() }
     }
-    val roots = setOf(LivePage.HOME, LivePage.SPACE, LivePage.SETTINGS)
+    val roots = setOf(LivePage.HOME, LivePage.SPACE, LivePage.RSS, LivePage.SETTINGS)
     BackHandler(state.page !in roots) { model.back() }
     CompositionLocalProvider(LocalCallPresentation provides callPresentation) {
       MaterialTheme(colorScheme = darkColorScheme(primary = LiveAccent, secondary = LivePurple, background = LiveNavy,
         surface = LivePanel, onSurface = LivePale, onPrimary = LiveNavy)) {
         Scaffold(containerColor = LiveNavy, contentWindowInsets = WindowInsets.safeDrawing,
             topBar = {
-                if (!isInPip && !fullScreenCall) {
+                if (!isInPip && !fullScreenCall && state.page!=LivePage.RSS) {
                 Row(Modifier.fillMaxWidth().background(LiveNavy).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
                     .heightIn(min = 62.dp).padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -112,6 +120,7 @@ fun LiveApp(model: LiveViewModel = viewModel(factory = LiveViewModel.factory(Loc
                         LivePage.CHARACTER -> "创建人物"
                         LivePage.ENSEMBLE -> "创建群聊"
                         LivePage.SPACE -> "空间"
+                        LivePage.RSS -> "信息流"
                         LivePage.IMAGE -> "图片草稿"
                         LivePage.DETAILS -> "人物详情"
                         LivePage.USAGE -> "LLM 使用情况"
@@ -122,8 +131,8 @@ fun LiveApp(model: LiveViewModel = viewModel(factory = LiveViewModel.factory(Loc
                 }
                 }
             }, bottomBar = {
-                if (!isInPip && state.page in roots) NavigationBar(containerColor = Color(0xFF111B2C)) {
-                    listOf(LivePage.HOME to "聊天", LivePage.SPACE to "空间", LivePage.SETTINGS to "设置").forEach { (page, label) ->
+                if (!isInPip && state.page in roots && (state.page!=LivePage.RSS || rssState.page==RssPage.FEED)) NavigationBar(containerColor = Color(0xFF111B2C)) {
+                    listOf(LivePage.HOME to "聊天", LivePage.SPACE to "空间", LivePage.RSS to "信息", LivePage.SETTINGS to "设置").forEach { (page, label) ->
                         NavigationBarItem(selected = state.page == page, onClick = { model.show(page) },
                             icon = {
                                 if (page == LivePage.SPACE && state.spaceUnreadCount > 0) {
@@ -135,7 +144,7 @@ fun LiveApp(model: LiveViewModel = viewModel(factory = LiveViewModel.factory(Loc
                                             tint = if (state.page == page) LiveAccent else LiveMuted)
                                     }
                                 } else {
-                                    LiveGlyph(if (page == LivePage.HOME) LiveSymbol.CHAT else if (page == LivePage.SPACE) LiveSymbol.SPACE else LiveSymbol.SETTINGS,
+                                    LiveGlyph(if (page == LivePage.HOME) LiveSymbol.CHAT else if (page == LivePage.SPACE) LiveSymbol.SPACE else if(page==LivePage.RSS) LiveSymbol.INFO else LiveSymbol.SETTINGS,
                                         tint = if (state.page == page) LiveAccent else LiveMuted)
                                 }
                             },
@@ -155,14 +164,11 @@ fun LiveApp(model: LiveViewModel = viewModel(factory = LiveViewModel.factory(Loc
             } else {
                 Column(Modifier.fillMaxSize().padding(inner).consumeWindowInsets(inner).imePadding()
                     .background(Brush.verticalGradient(listOf(LiveNavy, Color(0xFF0C1428), LiveNavy)))) {
+                    if (call.active && state.page != LivePage.CHAT) {
+                        LiveOngoingCall(state, model, call)
+                    }
                     state.error?.let { LiveFeedback(it, "live-error", true) }
                     state.notice?.let { LiveFeedback(it, "live-notice") }
-                    if (call.active && state.page != LivePage.CHAT) {
-                        TextButton(onClick = { model.show(LivePage.CHAT) },
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("live-call-return")) {
-                            Text("${state.target?.name ?: "人物"} · 通话进行中 · 返回通话")
-                        }
-                    }
                     Box(Modifier.weight(1f)) {
                         when (state.page) {
                             LivePage.HOME -> LiveHome(state, model)
@@ -171,6 +177,7 @@ fun LiveApp(model: LiveViewModel = viewModel(factory = LiveViewModel.factory(Loc
                             LivePage.CHARACTER -> LiveCharacter(state, model)
                             LivePage.ENSEMBLE -> LiveEnsemble(state, model)
                             LivePage.SPACE -> LiveSpace(state, model)
+                            LivePage.RSS -> LiveRss(rss,rssGrid) {model.show(LivePage.SETTINGS)}
                             LivePage.IMAGE -> LiveImage(state, model)
                             LivePage.DETAILS -> LiveDetails(state)
                             LivePage.USAGE -> LiveUsage(state, model)
@@ -185,13 +192,8 @@ fun LiveApp(model: LiveViewModel = viewModel(factory = LiveViewModel.factory(Loc
 
 @Composable
 private fun CallPipCompactContent(state: LiveState, target: ChatTarget, model: LiveViewModel, startedAtMs: Long) {
-    var elapsedSeconds by remember(startedAtMs) { mutableLongStateOf(0) }
-    LaunchedEffect(startedAtMs) {
-        if (startedAtMs > 0) while (true) {
-            elapsedSeconds = ((System.nanoTime() / 1_000_000 - startedAtMs) / 1000).coerceAtLeast(0)
-            delay(1000)
-        }
-    }
+    val call by model.call.state.collectAsStateWithLifecycle()
+    val duration = callElapsedText(startedAtMs)
     Box(Modifier.fillMaxSize().background(LiveNavy).testTag("live-call-pip-content")) {
         val avatar = state.avatars[target.id].orEmpty()
         if (avatar.isNotBlank()) {
@@ -213,8 +215,10 @@ private fun CallPipCompactContent(state: LiveState, target: ChatTarget, model: L
         Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
             Text(target.name, color = Color.White, fontSize = 15.sp, maxLines = 1,
                 overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("live-call-pip-name"))
-            Text("%02d:%02d".format(elapsedSeconds / 60, elapsedSeconds % 60), color = Color.White.copy(alpha = .82f),
+            Text(duration, color = Color.White.copy(alpha = .82f),
                 fontSize = 12.sp, modifier = Modifier.testTag("live-call-pip-duration"))
+            Text(callStatusText(call), color = Color.White.copy(alpha = .82f), fontSize = 11.sp,
+                maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("live-call-pip-status"))
         }
     }
 }

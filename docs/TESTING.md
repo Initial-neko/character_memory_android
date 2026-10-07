@@ -4,6 +4,10 @@ Status: **V1 voice/call/sticker/visual source and regressions integrated; execut
 
 ## 当前自动化门槛
 
+RSS adds JVM repository/state/HTML tests and `RssUiTest.subscriptionsSourceFiltersDetailsAndRecovery` against synthetic HTTPS. This checks the actual information tab, source/title/type/cursor combination, paragraph/image detail, add failure preservation, cancellation and restoration. Evidence is saved locally in the app's external `rss-acceptance` directory, and on API29+ also published through MediaStore to `Pictures/CharacterMemoryRss` and `Download/CharacterMemoryRss`. Public evidence survives Gradle's post-test APK uninstall; CI pulls it into `artifacts/rss`.
+
+`RssUiTest.actualCoreFeedAndRichArticle` is annotated `RssLiveCore` and excluded from fixture CI, rather than counted as skipped evidence. Run it explicitly with `rss_real_core` (HTTPS origin), `rss_real_ca` (base64 PEM acceptance certificate), `rss_real_item` and `rss_real_source` instrumentation arguments against an actual Core deployment. It uses explicit certificate trust and hostname validation; fixture certificates are test-only. Record real RSS/API/image results separately from mocks. Emulator success does not establish phone installation or sensor acceptance.
+
 `scripts/summarize_evidence.py` 按 `--profile p1`（默认）或 `--profile p2` 分开汇总。P1 只计 `PrototypeRulesTest` / `PrototypeViewModelTest` / `PrototypeUiTest`；P2 计新增 API/business/UI 测试。任何 skipped、failure/error、缺失/非法 XML、重复 testcase identity 都不能 PASS。截图按 `p1-` / `p2-` 前缀隔离，缺失、重复或多余的同阶段文件名会失败；JSON 保存原始 PNG 的 SHA-256 和实际 git SHA。
 
 | 证据 | P1 | P2 |
@@ -122,7 +126,20 @@ adb logcat -d > logcat.txt
 
 ## 6. PR verification template
 
-`LiveApiUiTest.callStageReferenceScreensPreserveOneSession` captures the normal, static Live2D and shared-screen stages on an emulator. It checks unchanged call start identity/backend writes across display/history switches and speaker state across minimizing. Its shared frame and recording are fixtures: this test does not certify real MediaProjection, physical microphone, camera or PC Core integration. `CallStageTest` checks display precedence and restoration without access to call factories.
+`LiveApiUiTest.callStageReferenceScreensPreserveOneSession` captures the normal, Live2D renderer container and shared-screen stages on an emulator. It checks unchanged call start identity/backend writes across display/history switches and speaker state across minimizing, and rejects the old static Live2D placeholder tag. Its shared frame and recording are fixtures; its synthetic Core does not provide the licensed/local runtime. This test does not certify real model rendering, MediaProjection, physical microphone, camera or PC Core integration. `CallStageTest` checks display precedence and restoration without access to call factories. `Live2dOriginPolicyTest` checks exact HTTPS origin/port enforcement and malformed URL rejection.
+
+`LiveApiUiTest.minimizedExplicitCallHasReturnControlWithoutNewSession` verifies that the ongoing-call strip remains visible on Home, Space, Settings and character creation, showing the same character, duration and current call state. It checks unchanged start identity and recorder across navigation, live mute/reconnect updates, returning to the existing call, and removal after hangup. Screenshots `40-minimized-call-home` and `41-minimized-call-create` cover the strip outside scrolling content. Recording and transport here are fixtures; physical audio continuity requires separate device acceptance.
+
+`Live2dRendererGpuTest.realMoc3LoadsAndProducesGpuScreenshots` is an opt-in real Core probe, which mounts only the renderer and does not create a voice session or start any capture. Install the debug app and its `app-debug-androidTest.apk`, then run against an explicit device and existing configured model:
+
+~~~text
+adb -s TARGET shell am instrument -w -e class com.charactermemory.android.Live2dRendererGpuTest -e live2d_core_url CORE_HTTPS -e live2d_character_id CHARACTER_ID com.charactermemory.android.test/androidx.test.runner.AndroidJUnitRunner
+adb -s TARGET shell run-as com.charactermemory.android cat files/live2d-renderer-evidence.json
+~~~
+
+Without the two instrumentation arguments this test cannot run successfully; fixture CI excludes its Live2dRealCore annotation and records real GPU acceptance separately. It requires ready canvas, real renderer presentation context and an observed MOC3 request; then it records two actual GPU screenshots and JSON under app-private `files/live2d-gpu-probe/`. It also checks that inset resizing keeps the same presentation token, and verifies lifecycle pause/resume plus full-stage restoration, recording `inset.png`, `inset.json`, `paused.json` and `resumed.json`. Pull those files via `run-as`, review that the expected character is visible and compare the frames for actual model motion. The latest renderer snapshot is marked `destroyed:true,ready:false` after probe teardown; the saved probe JSON files retain the active render results. The frame counter is document RAF, so the automated load assertions alone cannot establish blinking, breathing, lip sync or successful motion playback. Separately verify avatar-mode teardown, model-load failure, and rapid character/Core changes. Hardware microphone/camera/projection acceptance remains independent.
+
+The probe uses `Live2dProbeActivity` from `src/debug`, which is absent from release builds and has no voice ViewModel or capture owner. For devices that cannot run instrumentation, open this same pure-renderer activity with `adb shell am start -n com.charactermemory.android/.Live2dProbeActivity --es core_url CORE_HTTPS --es character_id CHARACTER_ID`. Send a single-top intent with `--ez inset true` or `false` to resize the existing renderer; verify unchanged presentation token and inspect real screenshots. Keep the device unlocked and the probe foreground. A locked, paused renderer with a loaded MOC3 is not a visual or animation pass. Check `nativeHeight`, `viewportHeight`, `bodyHeight`, `stageHeight` and both canvas dimensions; a zero-height canvas must never pass load acceptance.
 
 ~~~text
 Core contract revision:
