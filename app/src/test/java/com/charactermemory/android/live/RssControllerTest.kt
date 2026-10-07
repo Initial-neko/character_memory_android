@@ -24,7 +24,8 @@ class RssControllerTest {
         }
     }
     private suspend fun await(controller:RssController,predicate:(RssState)->Boolean) {
-        withTimeout(4000) { while(!predicate(controller.state.value)) delay(10) }
+        try {withTimeout(4000) { while(!predicate(controller.state.value)) delay(10) }}
+        catch(error:TimeoutCancellationException) {throw AssertionError("RSS state did not settle: ${controller.state.value}",error)}
     }
     @Test fun failedFetchStillSavesAndRepeatedTapDoesNotResubmit()=runBlocking {
         MockWebServer().use { server ->
@@ -49,6 +50,7 @@ class RssControllerTest {
         }
     }
     @Test fun latestFilterWinsAndReturningFromArticleKeepsFeed()=runBlocking {
+        repeat(20) {
         MockWebServer().use {server ->
             val oldDispatched=CountDownLatch(1)
             // Cancellation may close the first socket before a queued response is consumed.
@@ -78,6 +80,7 @@ class RssControllerTest {
                 assertEquals(before.cursor,controller.state.value.cursor)
                 delay(600);assertEquals("2",controller.state.value.items.single().text("id"))
             } finally {controller.close();scope.cancel()}
+        }
         }
     }
 }
