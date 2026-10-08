@@ -21,7 +21,7 @@ One authoritative Character Core; Android does not run PersonRuntime/Memory, acc
 |---|---|
 | Compose UI and navigation | Personality / reactions / memories |
 | Client API + SSE connection | Persistent chat / group / Space events |
-| Local cached preferences and scoped credentials | Group autonomy, World scheduler |
+| Local cached preferences (scoped credentials remain proposed) | Group autonomy, World scheduler |
 | Camera / microphone / screen input | ASR/TTS service endpoints, Vision, image generation |
 | Android permission and foreground service lifecycle | Validation, quotas, media storage |
 | User-visible connect and capture controls | Durable source of truth |
@@ -104,7 +104,7 @@ Mic → AudioRecord → PCM16/WAV → MEDIA /v1/asr → text
     → CORE /v1/chat/messages (or visual message) → SSE result
     → MEDIA /v1/tts → bytes → native player
 
-CameraX / MediaProjection → local preview/consented capture
+Camera2 / MediaProjection → local preview/consented capture
    → low-cost change filter → bounded JPEG keyframes
    → CORE /v1/visual/direct/messages or /observations
    → PersonRuntime via existing scheduler
