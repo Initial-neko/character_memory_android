@@ -4,7 +4,7 @@ P2 使用现有 Core API，实现配置、角色与群聊列表、私聊/群聊�
 
 ## 配置真实连接
 
-1. 手机和 PC 登录同一个 Tailscale 网络，PC Core 与 Media 按 Core 的 [MOBILE_ACCESS.md](https://github.com/Initial-neko/character_memory/blob/508c6f0/docs/current/MOBILE_ACCESS.md) 运行。
+1. 手机和 PC 登录同一个 Tailscale 网络，PC Core 与 Media 按 Core 的 [MOBILE_ACCESS.md](https://github.com/Initial-neko/character_memory/blob/main/docs/current/MOBILE_ACCESS.md) 运行。
 2. 首次启动在设置填写 Core：`https://<node>.<tailnet>.ts.net`。仓库没有预置私人服务器地址，未配置时保持设置页。
 3. Media 通常为同一域名的 `https://<node>.<tailnet>.ts.net:8443`；可以独立填写 HTTPS origin。Core 是业务/SSE 服务，Media 是 ASR/TTS 服务，不能互换。
 4. 保存后打开角色列表，再进入私聊。连接错误在真实页面展示，不生成 Mock 列表或假回复。证书校验保持开启，不能用手机的 `127.0.0.1` 代替 PC。
@@ -23,7 +23,7 @@ Debug APK 可通过显式 activity extra `initial_core_url` / `initial_media_url
 
 ## Fixture 来源
 
-事实源固定为 [Core `508c6f0` 的 MOBILE_API_CONTRACT.md](https://github.com/Initial-neko/character_memory/blob/508c6f0/docs/current/MOBILE_API_CONTRACT.md)，并核对同 revision 的实际路由、模型和 Web 消费代码。源文件定义的 CURRENT 路由/事件为准；PROPOSED 设备配对、canonical Direct ID 等不得放进可调用 fixture。
+测试 fixture 历史来源为 Core `508c6f0`；当前事实源应是 [Core MOBILE_API_CONTRACT.md](https://github.com/Initial-neko/character_memory/blob/main/docs/current/MOBILE_API_CONTRACT.md)、机器可读清单和实际路由。每次修改 fixture 都需要重新核对当前 Core，而非把历史版本视为始终兼容。源文件定义的 CURRENT 路由/事件为准；PROPOSED 设备配对、canonical Direct ID 等不得放进可调用 fixture。
 
 开发期间本地 Core 已更新至 `3aa7a00f902e91b5616fbd108fc6f05a352b90ac`。已核对 `async_web.py` 的变更为服务端 channel lease 生命周期管理，SSE 路径和事件帧格式保持一致；此源码核对不代表该版本的真实服务已通过业务验收。
 
@@ -31,7 +31,7 @@ JVM `CoreApiTest` / `ConversationProjectionTest` 与 `LiveApiUiTest` 的 JSON/SS
 
 ## 前端自动化与用户后端验收
 
-CI 分开记录 P1/P2 JVM 和模拟器证据；两次 JVM 执行均使用 `--rerun-tasks`，分别保留 XML/JSON。P1 保持 ≥13 JVM、≥5 UI、准确的 12 个截图文件名；P2 保持 ≥25 JVM、≥6 UI 和 9 个独立截图。任何跳过、错误/缺失 XML、重复测试、缺截图都不记为 PASS。详见 [TESTING.md](TESTING.md)。
+CI 分开记录 P1/P2 JVM 和模拟器证据；两次 JVM 执行均使用 `--rerun-tasks`，分别保留 XML/JSON。P1 保持 ≥13 JVM、≥5 UI、准确的 12 个截图文件名；P2 的 JVM 基线以 CI 为准、≥40 项模拟器测试和 34 张固定截图（p2-01 至 p2-32，以及 p2-40、p2-41）。任何跳过、错误/缺失 XML、重复测试、缺截图都不记为 PASS。详见 [TESTING.md](TESTING.md)。
 
 模拟器 `LiveApiUiTest` 使用测试注入的本机 HTTPS MockWebServer，检查真实页面调用协议与状态；不访问用户 PC。TLS localhost fixture 和测试证书只用于测试。模拟器截图需在当前提交人工/AI 审查，特别是输入法与窄屏。
 
