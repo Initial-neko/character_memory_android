@@ -13,11 +13,11 @@ RSS adds JVM repository/state/HTML tests and `RssUiTest.subscriptionsSourceFilte
 | 证据 | P1 | P2 |
 |---|---|---|
 | JVM | ≥13，0 失败/错误/跳过 | ≥27（transport/projection 16 + LiveRules 9 + time formatting 2），0 失败/错误/跳过 |
-| 模拟器 | PrototypeUiTest ≥5 | LiveApiUiTest + VoiceMessageUiTest ≥39，合成 HTTPS、ASR 草稿、通话、表情 SVG/损坏禁发、视觉路由 |
-| 截图 | p1-01 至 p1-12，固定完整文件名 | p2-01 至 p2-29，准确文件名由汇总脚本定义；22 静音、23 全屏视频及人物小窗、24 共享、25 连接授权等待、26 共享选择、27 原生 PiP、28 系统共享范围选择、29 原生 PiP 菜单 |
+| 模拟器 | PrototypeUiTest ≥5 | P2 instrumented tests ≥40，合成 HTTPS、ASR 草稿、通话、表情 SVG/损坏禁发、视觉路由 |
+| 截图 | p1-01 至 p1-12，固定完整文件名 | p2-01 至 p2-32、p2-40 和 p2-41（共 34 张），准确文件名由 scripts/summarize_evidence.py 定义 |
 | 真实 Core/真机媒体 | 分开记录 | 本地服务 ASR/TTS 与手机传感器分开验收，不用源代码或合成素材推定硬件 PASS |
 
-P2 截图保存到 `/sdcard/Pictures/CharacterMemoryP2/`：`p2-01-settings.png`、`p2-02-roster.png`、`p2-03-direct-chat.png`、`p2-04-chat-ime.png`、`p2-05-space.png`、`p2-06-character-draft.png`、`p2-07-ensemble-preview.png`、`p2-08-image-draft.png`、`p2-09-group-chat.png`。不能使用设计图或旧提交截图填补。
+P2 截图保存在 `/sdcard/Pictures/CharacterMemoryP2/`，完整文件名及必需数量以 `scripts/summarize_evidence.py` 的固定清单为准（包括最近新增的通话参考、缩小窗口和 PiP 证据）。不能使用设计图或旧提交截图填补。
 
 CI 先运行 `python3 -m unittest discover -s scripts -p 'test_*.py' -v`，覆盖 skipped/非法与缺失 XML、阶段隔离、缺图和 SHA。Android JVM 使用两次真实 `--rerun-tasks` 执行，第二轮先清除上一轮输出；各轮 XML/JSON 保存在 `artifacts/jvm-run-1/` 和 `artifacts/jvm-run-2/`。构建任务保留 APK/JUnit/lint，模拟器保留截图/JUnit/logcat。没有 `continue-on-error` 或静默忽略必需截图的回退。
 
@@ -30,7 +30,7 @@ CI 先运行 `python3 -m unittest discover -s scripts -p 'test_*.py' -v`，覆�
 | A. JVM | JUnit, MockWebServer, Kotlin Coroutines test | DTOs, REST errors, SSE parsing/retry/dedupe, ViewModel & CallController state machine | Android camera/mic/OS permissions |
 | B. Instrumented emulator | Compose UI Test, Espresso/UI Automator, Android emulator | navigation, forms, IME, accessibility, screenshots, fake media and mocked system state | hardware thermal/battery, all MediaProjection and headset cases |
 | C. Core integration | PC stack + Tailnet + Android client | real 202→SSE, character/group/Space, Vision routing, ASR/TTS API | all device/OEM background behaviors |
-| D. Hardware acceptance | ADB/logcat + screen recording + real phone, user-approved capture | real CameraX, AudioRecord, MediaProjection consent, lock/rotation/network/headsets | universal compatibility across every device and OEM |
+| D. Hardware acceptance | ADB/logcat + screen recording + real phone, user-approved capture | real Camera2, AudioRecord, MediaProjection consent, lock/rotation/network/headsets | universal compatibility across every device and OEM |
 
 Report **PASS, FAIL, SKIPPED or NOT RUN** separately for every level. Never replace missing hardware evidence with simulator PASS.
 
@@ -85,7 +85,7 @@ fixtures/
   visual-observation-rejected.json
 ~~~
 
-Read the [pinned Core 508c6f0 mobile API contract](https://github.com/Initial-neko/character_memory/blob/508c6f0/docs/current/MOBILE_API_CONTRACT.md) and actual source models before adding/changing fixtures. P2 uses test-local synthetic JSON/SSE fixtures; the directory above is a future-stage catalog, not a claim that all files exist. Provenance and backend acceptance are maintained in [P2_SETUP.md](P2_SETUP.md). Later add automated Core-generated schema checks so docs and fixtures do not drift.
+Existing P2 fixtures began at historical Core 508c6f0. Before modifying them, compare the [current Core mobile API contract](https://github.com/Initial-neko/character_memory/blob/main/docs/current/MOBILE_API_CONTRACT.md), machine-readable route inventory and source models; historical fixture provenance is not current Core compatibility evidence. P2 uses test-local synthetic JSON/SSE fixtures; the directory above is a future-stage catalog, not a claim that all files exist. Provenance and backend acceptance are maintained in [P2_SETUP.md](P2_SETUP.md). Later add automated Core-generated schema checks so docs and fixtures do not drift.
 
 ## 4. AI-driven UI inspection
 
