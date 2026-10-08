@@ -118,7 +118,7 @@ internal fun LiveImage(state: LiveState, model: LiveViewModel) {
                 modifier = Modifier.testTag("live-image-selfie"))
             Text("人物自拍（关闭为场景）")
         }
-        LiveAction(if ("image-generate" in state.busy) "正在润色并生成…" else "润色并生成图片草稿", "live-image-generate", state.busy.isEmpty()) { model.generateImageDraft() }
+        LiveAction(if ("image-generate" in state.busy) "正在润色并生成…" else "润色并生成图片草稿", "live-image-generate", "image-generate" !in state.busy && "send" !in state.busy) { model.generateImageDraft() }
         if (state.imagePrompt.isNotBlank()) Text(state.imagePrompt, modifier = Modifier.testTag("live-image-prompt"))
         state.imageDraft?.let { draft ->
             Column(Modifier.fillMaxWidth().testTag("live-image-draft"), verticalArrangement = Arrangement.spacedBy(12.dp)) {

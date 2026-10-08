@@ -7,17 +7,29 @@ mkdir -p artifacts/screenshots artifacts/rss
 adb logcat -b all -v threadtime > artifacts/emulator-continuous-logcat.txt &
 log_pid=$!
 trap 'kill "$log_pid" 2>/dev/null; wait "$log_pid" 2>/dev/null' EXIT
-# Do not start UI tests underneath a system ANR dialog. Cold compilation now
-# happens before emulator boot, so Launcher and the IME can settle independently.
-adb shell am start -W -a android.intent.action.MAIN -c android.intent.category.HOME > artifacts/emulator-home-start.txt
-home_result=$?
+# A *historical* boot-time ANR remains in "dumpsys activity lastanr" even
+# after the emulator has recovered. It is diagnostic evidence, not proof that
+# the current foreground window is blocked. Check the active UI instead.
+home_result=1
+for attempt in 1 2 3; do
+  adb shell am start -W -a android.intent.action.MAIN -c android.intent.category.HOME > artifacts/emulator-home-start.txt
+  home_result=$?
+  if [ "$home_result" -eq 0 ]; then break; fi
+  echo "Home launcher not ready on attempt $attempt/3" >&2
+  sleep 3
+done
 adb shell dumpsys activity lastanr > artifacts/emulator-before-lastanr.txt
 adb shell dumpsys window windows > artifacts/emulator-before-windows.txt
 adb logcat -b all -d > artifacts/emulator-before-logcat.txt
-if [ "$home_result" -ne 0 ] || ! grep -Fq '<no ANR has occurred since boot>' artifacts/emulator-before-lastanr.txt; then
+if ! grep -Fq '<no ANR has occurred since boot>' artifacts/emulator-before-lastanr.txt; then
+  echo 'Historical emulator ANR found; retained in artifacts for diagnosis.' >&2
+fi
+# A currently focused system error dialog is a real gate. Tests should not
+# attempt to tap through it or report a spurious application failure.
+if [ "$home_result" -ne 0 ] || grep -Ei 'mCurrentFocus=.*(Application Not Responding|isn.t responding|Application Error)' artifacts/emulator-before-windows.txt; then
   adb shell screencap -p /sdcard/character-memory-system-failure.png
   adb pull /sdcard/character-memory-system-failure.png artifacts/emulator-system-failure.png
-  echo 'Emulator system readiness failed; UI acceptance was not run.' >&2
+  echo 'Emulator launcher failed or a foreground system error dialog is active.' >&2
   exit 1
 fi
 ./gradlew --no-daemon --max-workers=2 connectedDebugAndroidTest --stacktrace -Pandroid.testInstrumentationRunnerArguments.notAnnotation=com.charactermemory.android.RssLiveCore,com.charactermemory.android.Live2dRealCore
