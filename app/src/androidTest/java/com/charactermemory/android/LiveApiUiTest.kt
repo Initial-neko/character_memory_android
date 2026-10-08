@@ -411,7 +411,15 @@ class LiveApiUiTest {
         compose.onNodeWithTag("live-image-avatar").assertDoesNotExist()
         tap("live-image-selfie", true)
         compose.onNodeWithTag("live-image-instruction").performTextInput("quiet coffee shop")
+        // Background sticker loading must not disable image generation. Assert
+        // the request was actually accepted before awaiting the resulting UI.
+        compose.waitUntil(15_000) {
+            compose.onAllNodes(hasTestTag("live-image-generate") and androidx.compose.ui.test.isEnabled()).fetchSemanticsNodes().isNotEmpty()
+        }
         tap("live-image-generate", true)
+        compose.waitUntil(15_000) { dispatcher.writes.any { it.first.endsWith("/images/generate") } }
+        compose.waitUntil(15_000) { model.state.value.imageDraft != null || model.state.value.error != null }
+        assertNotNull("Image draft generation failed: ${model.state.value.error}", model.state.value.imageDraft)
         waitTag("live-image-draft")
         compose.waitUntil(10_000) { "image-generate" !in model.state.value.busy }
         val selfie = dispatcher.writes.last { it.first.endsWith("/images/generate") }.second
