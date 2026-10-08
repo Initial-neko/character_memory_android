@@ -1114,7 +1114,14 @@ class LiveApiUiTest {
         dispatcher.keepCallStreamOpen = true
         tap("live-character-rin")
         compose.waitUntil(10000) { model.state.value.streamStatus == "已连接" }
-        compose.waitUntil(10000) { !model.state.value.avatars["rin"].isNullOrBlank() }
+        // @Before starts asynchronous avatar requests before showCallPortrait is
+        // enabled. Those requests may cache an empty fixture response. Wait for
+        // the initial read to finish, then explicitly re-read this portrait.
+        compose.waitUntil(15000) {
+            "roster" !in model.state.value.busy && "avatar-rin" !in model.state.value.busy
+        }
+        compose.runOnUiThread { model.refresh() }
+        compose.waitUntil(15000) { !model.state.value.avatars["rin"].isNullOrBlank() }
         compose.waitForIdle()
         compose.runOnUiThread { model.grantCallPermission(requireNotNull(model.requestCall()), true) }
         compose.waitUntil(10000) { fakeCallRecording != null }
